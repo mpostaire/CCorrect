@@ -1,0 +1,9 @@
+# *.o
+*
+!*.*
+*.o
+!test
+!ccorrect
+!ccorrect/utils
+!ccorrect/utils/**
+!Makefile
