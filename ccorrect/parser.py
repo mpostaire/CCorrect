@@ -69,7 +69,7 @@ class FuncCallParser():
         try:
             ast = parse_file(self.source_file, use_cpp=True, cpp_path="gcc",
                              cpp_args=['-E', f'-I{self.__include_path}'])
-            ast.show()
+
             v = FuncCallVisitor()
             v.visit(ast)
 
