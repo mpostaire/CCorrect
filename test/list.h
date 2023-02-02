@@ -11,6 +11,32 @@ typedef struct node {
     struct node *next;
 } node;
 
+typedef struct node_ext {
+    int value;
+    struct node next;
+} node_ext;
+
+typedef struct node_variable_array {
+    int value;
+    int next[];
+} node_variable_array;
+
+typedef struct node_array {
+    int value;
+    int next[4];
+} node_array;
+
+typedef struct node_array2d {
+    int value;
+    int next[4][2];
+} node_array2d;
+
+typedef struct node_array3d {
+    int value;
+    int next[4][2][3];
+} node_array3d;
+
+
 void free_list(node *list);
 
 size_t length(node *list);

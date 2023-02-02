@@ -1,81 +1,118 @@
-import struct
-import sys
-
 from ccorrect.debugger import Debugger
+import ccorrect.values as cval
+
+
 tester = Debugger(source_files=["list.c"])
 gdb = tester.start()
 
+# Test basic types
+val = cval.value("char", "c")
+print(val)
 
-def scalar_to_bytes(type, value):
-    # as floats/doubles in python don't have a to_bytes() method, use struct.pack()
-    if isinstance(value, float):  # TODO detection for double (d) or float (f)
-        return bytearray(struct.pack("f" if type.strip_typedefs().name == "float" else "d", value))
+val = cval.value("unsigned int", 42)
+print(val)
 
-    if type.name == "char" or type.name == "unsigned char" or type.name == "signed char":
-        return bytearray(value.encode())
+val = cval.value("int", -42)
+print(val)
 
-    # Using this method instead of struct.pack() is easier (especially if it's a typedef): no need to build a format string matching the type
-    return bytearray(value.to_bytes(type.sizeof, sys.byteorder, signed=type.is_signed if type.is_scalar else False))
+val = cval.value("float", 42.42)
+print(val)
 
+val = cval.value("double", 42.42)
+print(val)
 
-# TODO doesn't work for structures with __attribute__((packed))
-#       ---> check if works with aligned_alloc
-# FIX idea: if sizeof % alignof != 0, we have a packed struct but gdb reports a wrong alignment: replace gdb's align by sizeof(smallest_type_in_struct)
-def align_bytes(bytes, alignment):
-    if len(bytes) % alignment != 0:  # TODO fix align handling (should check that is is a multiple of align, if not, append padding zeroes to make it multiple)
-        padding = abs(alignment - len(bytes))
-        bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
+# Test basic allocated types
+val = cval.value_allocated("char", "c")
+print(val.dereference())
 
+val = cval.value_allocated("unsigned int", 42)
+print(val.dereference())
 
-# TODO extend this to all possible C types (as of now it only as incomplete supports for structs)
-# how to handle unions, enums?
-def pyval_to_gdbval(type, value):
-    # TODO using gdb.lookup_type(type), get info on the type (and underlying types using recursion (don't recurse inside pointer tho)) to convert
-    #                           ----------> If recurse inside pointers, make a cycle detection to avoid stack overflow ----> use id(value) to get its address (or 'is' operator????)
-    # any native python value into a gdb.Value
-    truetype = gdb.lookup_type(type)
+val = cval.value_allocated("int", -42)
+print(val.dereference())
 
-    print(f"sizeof={truetype.sizeof}, alignof={truetype.alignof}")
+val = cval.value_allocated("float", 42.42)
+print(val.dereference())
 
-    if truetype.is_scalar:
-        obj = scalar_to_bytes(truetype, value)
-        return gdb.Value(obj, truetype)
+val = cval.value_allocated("double", 42.42)
+print(val.dereference())
 
-    # TODO this code is not finished
-    # for example it does not support pointers detection like this: {"value": 4, "next": {"value": 5, "next": 0}}
-    # in this case the next points to another dict. This dict should be parsed, then allocated in the inferior and its pointer put into its parent
-    fields = truetype.fields()
-    obj = bytearray()
-    for f in fields:
-        # print(f"{f.name} -> {f.type}")
-        obj += scalar_to_bytes(f.type, value[f.name])
-        align_bytes(obj, truetype.alignof)
-        print(obj)
+# Test arrays
+val = cval.value("int", [1, 2, 3, 4, 42])
+print(val)
 
-    # print(obj)
-    return gdb.Value(obj, truetype)
+# Test strings
+val = cval.value("char", ["h", "e", "l", "l", "o" ])
+print(val)
 
+val = cval.string("hello")
+print(val)
+
+val = cval.string_allocated("hello")
+print([str(val[i]) for i in range(5)])
+
+# Test pointer allocated of array
+val = cval.value_allocated("int", [0, 1, 2, 42])
+print([int(val[i]) for i in range(4)])
+
+# Test array of arrays
+val = cval.value("int", [[1, 2], [3, 4], [5, 6], [7, 8]])
+print(f"{val.type}: {val}")
+
+val = cval.value("int", [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]], [[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]])
+print(f"{val.type}: {val}")
+
+# Test struct
 node_struct = {"value": 4, "next": 0}
-val = pyval_to_gdbval("node", node_struct)
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+val = cval.value("node", node_struct)
+print(val)
 
-val = pyval_to_gdbval("char", "c")
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+# Test nested struct
+node_nested_struct = {"value": 4, "next": {"value": 5, "next": 0}}
+val = cval.value("node_ext", node_nested_struct)
+print(val)
 
-val = pyval_to_gdbval("unsigned int", 42)
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+# Test struct pointer
+val = cval.value_allocated("node_ext", node_nested_struct)
+print(val.dereference())
 
-val = pyval_to_gdbval("int", -42)
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+# Test struct nested array
+node_struct_nested_array = {"value": 4, "next": [1, 2, 3, 4]}
+val = cval.value("node_array", node_struct_nested_array)
+print(val)
 
-val = pyval_to_gdbval("float", 42.42)
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+# Test struct nested array of arrays
+node_struct_nested_array = {"value": 4, "next": [[1, 2], [3, 4], [5, 6], [7, 8]]}
+val = cval.value("node_array2d", node_struct_nested_array)
+print(val)
 
-val = pyval_to_gdbval("double", 42.42)
-gdb.set_convenience_variable("val", val)
-gdb.execute("print $val")
+node_struct_nested_array['next'] = [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]], [[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]]
+val = cval.value("node_array3d", node_struct_nested_array)
+print(val)
+
+# /!\ Not supported ----> doable with gdb.parse_and_eval() using malloc for the whole size of the struct and
+#                       setting manually the elements
+# node_nested_struct_array_variable = {"value": 4, "next": [1, 2, 3, 4]}
+# val = cval.value("node_variable_array", node_nested_struct_array_variable)
+# print(val)
+
+# # TODO Test pointer to nested struct
+# node_nested_struct_pointer = {"value": 4, "next": {"value": 5, "next": 0}}
+# val = cval.value("node", node_nested_struct_pointer)
+# print(val)
+
+# # TODO Test circular struct
+# tail = {"value": 6, "next": 0}
+# middle = {"value": 5, "next": tail}
+# head = {"value": 4, "next": middle}
+# tail["next"] = head
+# val = cval.value("node", head)
+# print(val)
+
+# TODO Test struct containing struct of another type
+
+# TODO Test array of structs
+
+# TODO Test array of pointers
+
+# TODO complex structs: multiple types and arrays/structs and arrays of structs

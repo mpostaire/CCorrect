@@ -7,3 +7,4 @@
 !ccorrect/utils
 !ccorrect/utils/**
 !Makefile
+.vscode

@@ -2,10 +2,6 @@ import gdb
 from ccorrect.parser import FuncCallParser
 from dataclasses import dataclass
 
-# TODO https://stackoverflow.com/questions/42072355/debug-va-list-args-with-gdb
-
-# TODO add some sort of thread debug support????
-
 
 @dataclass
 class FuncStats:
