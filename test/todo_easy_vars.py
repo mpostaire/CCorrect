@@ -63,12 +63,12 @@ val = cval.value("int", [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]], [[1,
 print(f"{val.type}: {val}")
 
 # Test struct
-node_struct = {"value": 4, "next": 0}
+node_struct = {"value": 4, "next": None}
 val = cval.value("node", node_struct)
 print(val)
 
 # Test nested struct
-node_nested_struct = {"value": 4, "next": {"value": 5, "next": 0}}
+node_nested_struct = {"value": 4, "next": {"value": 5, "next": None}}
 val = cval.value("node_ext", node_nested_struct)
 print(val)
 
@@ -96,10 +96,11 @@ print(val)
 # val = cval.value("node_variable_array", node_nested_struct_array_variable)
 # print(val)
 
-# # TODO Test pointer to nested struct
-# node_nested_struct_pointer = {"value": 4, "next": {"value": 5, "next": 0}}
-# val = cval.value("node", node_nested_struct_pointer)
-# print(val)
+# Test pointer to nested struct
+node_nested_struct_pointer = {"value": 4, "next": {"value": 5, "next": None}}
+val = cval.value("node", node_nested_struct_pointer)
+print(val)
+print(val['next'].dereference())
 
 # # TODO Test circular struct
 # tail = {"value": 6, "next": 0}

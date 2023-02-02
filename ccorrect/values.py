@@ -42,6 +42,8 @@ class ArrayNode(ValueNode):
         super().__init__(*args, **kwargs)
 
         if not self.parent:
+            # no parent means this as currently the type of its innermost elements and it
+            # needs to be set to an actual array type
             self.__set_root_type()
 
         for elem in self.value:
@@ -89,8 +91,33 @@ class StructNode(ValueNode):
             bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
 
 
+class PointerNode(ValueNode):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.value is not None:
+            self.children = [parse_value(self.type.target(), self.value, self)]
+
+    def to_bytes(self):
+        if self.value is None:
+            address = 0  # is 0 always the address of the NULL pointer?
+        else:
+            child = self.children[0]
+            obj = child.to_bytes()
+
+            print(f"alloc size = {child.type.sizeof}")
+            pointer = gdb.parse_and_eval(f"malloc({child.type.sizeof})")
+            inferior = gdb.selected_inferior()
+            inferior.write_memory(pointer, obj)
+
+            address = int(pointer)
+
+        return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
+
+
 def parse_value(type, value, parent=None):
-    if isinstance(value, (list, tuple)):
+    if type.code == gdb.TYPE_CODE_PTR:
+        return PointerNode(type, value, parent=parent)
+    elif isinstance(value, (list, tuple)):
         return ArrayNode(type, value, parent=parent)
     elif isinstance(value, dict):
         return StructNode(type, value, parent=parent)
@@ -98,21 +125,25 @@ def parse_value(type, value, parent=None):
         return ScalarNode(type, value, parent=parent)
 
 
-def value_as_bytes(type, value):
+def _value_as_bytes(type, value):
     if not isinstance(type, gdb.Type):
         type = gdb.lookup_type(type).strip_typedefs()
 
     root = parse_value(type, value)
-    # print("----------")
     # print_tree(root)
-    # print("----------")
     return root.to_bytes(), root.type
 
 
 def print_tree(node, level=0):
+    if level == 0:
+        print("----------------")
+
     print(f"{'  ' * level}type={node.type.strip_typedefs()}, value={node.value}")
     for child in node.children:
         print_tree(child, level=level + 1)
+
+    if level == 0:
+        print("----------------")
 
 
 def value(type, value):
@@ -120,9 +151,9 @@ def value(type, value):
     Returns a gdb.Value constructed from a python variable
     """
     if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type)
+        type = gdb.lookup_type(type).strip_typedefs()
 
-    obj, root_type = value_as_bytes(type, value)
+    obj, root_type = _value_as_bytes(type, value)
     return gdb.Value(obj, root_type)
 
 
@@ -134,10 +165,10 @@ def value_allocated(type, value):
     if not isinstance(type, gdb.Type):
         type = gdb.lookup_type(type).strip_typedefs()
 
-    obj, root_type = value_as_bytes(type, value)
-    print(f"alloc size = {root_type.sizeof}")
+    obj, root_type = _value_as_bytes(type, value)
 
-    pointer = gdb.parse_and_eval(f"malloc(sizeof({root_type}) * {root_type.sizeof})")
+    print(f"alloc size = {root_type.sizeof}")
+    pointer = gdb.parse_and_eval(f"malloc({root_type.sizeof})")
     inferior = gdb.selected_inferior()
     inferior.write_memory(pointer, obj)
 
