@@ -119,6 +119,9 @@ class Ptr(int):
         if value < 0:
             raise ValueError(f"Ptr must be 0 or positive (got {value})")
 
+    def __repr__(self):
+        return hex(self)
+
 
 def parse_value(type, value, parent=None):
     if type.code == gdb.TYPE_CODE_PTR:

@@ -102,14 +102,7 @@ val = cval.value("node", node_nested_struct_pointer)
 print(val)
 print(val['next'].dereference())
 
-# # TODO Test circular struct
-# tail = {"value": 6, "next": None}
-# middle = {"value": 5, "next": tail}
-# head = {"value": 4, "next": middle}
-# tail["next"] = head
-# val = cval.value("node", head)
-# print(val)
-
+# Test circular struct
 # manually create circular struct using pointers of previously allocated values
 tail = cval.value_allocated("node", {"value": 6, "next": None})
 middle = cval.value_allocated("node", {"value": 5, "next": cval.Ptr(tail)})
