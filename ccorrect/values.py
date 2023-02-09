@@ -94,12 +94,12 @@ class StructNode(ValueNode):
 class PointerNode(ValueNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.value is not None:
+        if self.value is not None and not isinstance(self.value, Ptr):
             self.children = [parse_value(self.type.target(), self.value, self)]
 
     def to_bytes(self):
-        if self.value is None:
-            address = 0  # is 0 always the address of the NULL pointer?
+        if isinstance(self.value, Ptr):
+            address = self.value
         else:
             child = self.children[0]
             obj = child.to_bytes()
@@ -114,9 +114,15 @@ class PointerNode(ValueNode):
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
 
 
+class Ptr(int):
+    def __init__(self, value):
+        if value < 0:
+            raise ValueError(f"Ptr must be 0 or positive (got {value})")
+
+
 def parse_value(type, value, parent=None):
     if type.code == gdb.TYPE_CODE_PTR:
-        return PointerNode(type, value, parent=parent)
+        return PointerNode(type, Ptr(0) if value is None else value, parent=parent)
     elif isinstance(value, (list, tuple)):
         return ArrayNode(type, value, parent=parent)
     elif isinstance(value, dict):

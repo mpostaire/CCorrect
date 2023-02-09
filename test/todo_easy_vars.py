@@ -103,12 +103,26 @@ print(val)
 print(val['next'].dereference())
 
 # # TODO Test circular struct
-# tail = {"value": 6, "next": 0}
+# tail = {"value": 6, "next": None}
 # middle = {"value": 5, "next": tail}
 # head = {"value": 4, "next": middle}
 # tail["next"] = head
 # val = cval.value("node", head)
 # print(val)
+
+# manually create circular struct using pointers of previously allocated values
+tail = cval.value_allocated("node", {"value": 6, "next": None})
+middle = cval.value_allocated("node", {"value": 5, "next": cval.Ptr(tail)})
+head = cval.value_allocated("node", {"value": 4, "next": cval.Ptr(middle)})
+
+gdb.parse_and_eval(f"((node *) {tail})->next = {head}")
+
+tmp = head.dereference()
+print(f"head ({head}): {tmp}")
+tmp = tmp['next'].dereference()
+print(f"middle ({middle}): {tmp}")
+tmp = tmp['next'].dereference()
+print(f"tail ({tail}): {tmp}")
 
 # TODO Test struct containing struct of another type
 
