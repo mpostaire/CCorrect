@@ -6,5 +6,6 @@
 !ccorrect
 !ccorrect/utils
 !ccorrect/utils/**
+!.github/**
 !Makefile
 .vscode

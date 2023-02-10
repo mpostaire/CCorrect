@@ -104,7 +104,7 @@ class PointerNode(ValueNode):
             child = self.children[0]
             obj = child.to_bytes()
 
-            print(f"alloc size = {child.type.sizeof}")
+            # print(f"alloc size = {child.type.sizeof}")
             pointer = gdb.parse_and_eval(f"malloc({child.type.sizeof})")
             inferior = gdb.selected_inferior()
             inferior.write_memory(pointer, obj)
@@ -176,7 +176,7 @@ def value_allocated(type, value):
 
     obj, root_type = _value_as_bytes(type, value)
 
-    print(f"alloc size = {root_type.sizeof}")
+    # print(f"alloc size = {root_type.sizeof}")
     pointer = gdb.parse_and_eval(f"malloc({root_type.sizeof})")
     inferior = gdb.selected_inferior()
     inferior.write_memory(pointer, obj)

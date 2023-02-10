@@ -75,5 +75,5 @@ class FuncCallParser():
 
             return v.func_calls
         except Exception:
-            print(f"Error parsing file '{source_file}' to retreive function calls")
+            print(f"Error parsing file '{self.source_file}' to retreive function calls")
             return None
