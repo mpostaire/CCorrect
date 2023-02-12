@@ -119,7 +119,7 @@ class Ptr(int):
         if value < 0:
             raise ValueError(f"Ptr must be 0 or positive (got {value})")
 
-    def __repr__(self):
+    def __str__(self):
         return hex(self)
 
 

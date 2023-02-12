@@ -1,4 +1,5 @@
 import gdb
+import sys
 from ccorrect.parser import FuncCallParser
 from dataclasses import dataclass
 
@@ -94,10 +95,11 @@ class FuncBreakpoint(gdb.Breakpoint):
 
 
 class Debugger():
-    def __init__(self, source_files=None, watches=None, excludes=None, failures=None):
+    def __init__(self, source_files=None, watches=None, excludes=None, failures=None, timeout=0):
         self.stats = {}
         self.__failures = {}
         self.__watches = set()
+        self.timeout = timeout
 
         if source_files:
             self.add_watches_from_sources(source_files)
@@ -108,7 +110,9 @@ class Debugger():
         if failures:
             self.__failures = failures
 
-        gdb.events.exited.connect(self._exit_handler)
+        gdb.events.stop.connect(self._stop_event_handler)
+        gdb.events.exited.connect(self._exited_event_handler)
+
         # if debuginfod is present, enable it to get debug symbols from files without them --> useful for libc
         # TODO adapt this for the inginious container (it's better if we get debug symbols for the libc directly from the container for performance purposes)
         gdb.execute("set debuginfod enabled on")
@@ -131,11 +135,30 @@ class Debugger():
     def start(self):
         for func in self.__watches:
             FuncBreakpoint(self.stats, self.__failures, func)
+
         gdb.execute("start")
+
+        if self.timeout:
+            gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
+            gdb.parse_and_eval(f"alarm({self.timeout})")
+
         return gdb
 
-    def _exit_handler(self, event):
-        print("event type: exit")
+    def _stop_event_handler(self, event):
+        # this is needed to avoid parallel exec of the handler
+        # https://stackoverflow.com/questions/25410568/continue-after-signal-with-a-python-script-in-gdb
+        gdb.execute("set scheduler-locking on")
+
+        # the breakpoint on main() created by the gdb start command will call this handler so we ignore all events that aren't signals
+        # this handler won't be called by our own FuncBreakpoint and FuncFinishBreakpoint because they never stop (their stop method always return False)
+        if not isinstance(event, gdb.SignalEvent):
+            gdb.execute("set scheduler-locking off")
+            return
+
+        print(f"GOT EVENT {event.stop_signal}", file=sys.stderr)
+
+    def _exited_event_handler(self, event):
+        print(f"event type: exit ({event})")
         if hasattr(event, 'exit_code'):
             print(f"exit code: {event.exit_code}")
         else:

@@ -1,5 +1,6 @@
-#include <stdio.h>
+// The following includes are needed by CCorrect
 #include <stdlib.h>
+#include <unistd.h>
 
 // TODO handle this case
 // typedef struct node_packed {
