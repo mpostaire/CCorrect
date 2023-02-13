@@ -5,9 +5,7 @@ import unittest
 
 class TestValueBuilder(unittest.TestCase):
     def tearDown(self):
-        # After each test method
-        # TODO free all allocated values
-        pass
+        cval.free_allocated_values()
 
     def test_basic_types(self):
         val = cval.value("char", "c")
@@ -30,7 +28,7 @@ class TestValueBuilder(unittest.TestCase):
 
         val = cval.value("double", 42.42)
         self.assertEqual(float(val), 42.42)
-    
+
     def test_basic_allocated_types(self):
         val = cval.value_allocated("char", "c")
         self.assertEqual(chr(val.dereference()), "c")
@@ -52,7 +50,7 @@ class TestValueBuilder(unittest.TestCase):
 
         val = cval.value_allocated("double", 42.42)
         self.assertEqual(float(val.dereference()), 42.42)
-    
+
     def test_arrays(self):
         array = [1, 2, 3, 4, 42]
         val = cval.value("int", array)
@@ -193,6 +191,41 @@ class TestValueBuilder(unittest.TestCase):
         self.assertEqual(tail["value"], 6)
         self.assertEqual(int(tail["next"]), int(head))
 
+    def test_array_of_structs(self):
+        array = [{"value": 4, "next": None}, {"value": 5, "next": {"value": 42, "next": None}}, {"value": 6, "next": None}]
+        val = cval.value("node", array)
+
+        self.assertEqual(len(array), len(list(cval.gdb_array_iterator(val))))
+
+        self.assertEqual(val[0]["value"], 4)
+        self.assertEqual(val[0]["next"], 0)
+
+        self.assertEqual(val[1]["value"], 5)
+        self.assertGreater(val[1]["next"], 0)
+
+        inner_struct = val[1]["next"].dereference()
+        self.assertEqual(inner_struct["value"], 42)
+        self.assertEqual(inner_struct["next"], 0)
+
+        self.assertEqual(val[2]["value"], 6)
+        self.assertEqual(val[2]["next"], 0)
+
+    def test_pointer_from_value(self):
+        val = cval.value_allocated("node", {"value": 4, "next": None})
+        ptr = cval.pointer(val)
+
+        self.assertEqual(str(val.type), "struct node *")
+        self.assertEqual(val["value"], 4)
+
+        self.assertEqual(str(ptr.type), "struct node **")
+        self.assertEqual(str(ptr.dereference().type), "struct node *")
+        self.assertEqual(ptr.dereference()["value"], 4)
+
+        # cannot get pointer of gdb.Value that isn't allocated on the inferior's heap 
+        with self.assertRaises(gdb.error):
+            val = cval.value("node", {"value": 4, "next": None})
+            ptr = cval.pointer(val)
+
 
 tester = Debugger()
 gdb = tester.start()
@@ -205,11 +238,3 @@ unittest.main()
 # # node_nested_struct_array_variable = {"value": 4, "next": [1, 2, 3, 4]}
 # # val = cval.value("node_variable_array", node_nested_struct_array_variable)
 # # print(val)
-
-# # TODO Test struct containing struct of another type
-
-# # TODO Test array of structs
-
-# # TODO Test array of pointers
-
-# # TODO complex structs: multiple types and arrays/structs and arrays of structs

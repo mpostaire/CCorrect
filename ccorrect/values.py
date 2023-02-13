@@ -2,6 +2,8 @@ import gdb
 import struct
 import sys
 
+allocated_addresses = []
+
 def gdb_array_iterator(value):
     assert value.type.code == gdb.TYPE_CODE_ARRAY
     # type_of_elements = value.type.target()
@@ -110,6 +112,7 @@ class PointerNode(ValueNode):
             inferior.write_memory(pointer, obj)
 
             address = int(pointer)
+            allocated_addresses.append(address)
 
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
 
@@ -181,6 +184,8 @@ def value_allocated(type, value):
     inferior = gdb.selected_inferior()
     inferior.write_memory(pointer, obj)
 
+    allocated_addresses.append(int(pointer))
+
     if root_type.code == gdb.TYPE_CODE_ARRAY:
         return pointer.cast(root_type.target().pointer())
     else:
@@ -201,13 +206,17 @@ def string_allocated(str):
     return value_allocated("char", [*str])
 
 
-def pointer(referenced_value):
+def pointer(value):
     """
-    Returns a gdb.Value pointer to referenced_value
-    referenced_value must be located in the memory of the inferior
+    Returns a gdb.Value pointer to value
+    value must be located in the memory of the inferior
     """
-    if referenced_value.address is None:
-        raise ValueError("Cannot get reference of referenced_value: not a variable of the inferior")
+    return value_allocated(value.type, Ptr(value))
 
-    type = referenced_value.type.pointer()
-    return value(type, int(referenced_value.address))
+
+def free_allocated_values():
+    global allocated_addresses
+
+    for address in allocated_addresses:
+        gdb.parse_and_eval(f"free({address})")
+    allocated_addresses = []
