@@ -144,12 +144,13 @@ class Debugger():
 
         return gdb
 
-    def call(self, funcname, args):
+    def call(self, funcname, args=None):
         parsed_args = []
-        for i, arg in enumerate(args):
-            var_name = f"tmp_arg{i}"
-            gdb.set_convenience_variable(var_name, arg)
-            parsed_args.append(f"${var_name}")
+        if args is not None:
+            for i, arg in enumerate(args):
+                var_name = f"tmp_arg{i}"
+                gdb.set_convenience_variable(var_name, arg)
+                parsed_args.append(f"${var_name}")
 
         return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
 

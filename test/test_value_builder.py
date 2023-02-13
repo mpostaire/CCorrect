@@ -121,6 +121,23 @@ class TestValueBuilder(unittest.TestCase):
         self.assertEqual(val["value"], node_struct["value"])
         self.assertEqual(val["next"], 0)
 
+    def test_packed_struct(self):
+        struct = {"c": 'a', "i": 5}
+        val = cval.value("test_struct", struct)
+        val_packed = cval.value("test_struct_packed", struct)
+
+        self.assertEqual(chr(val["c"]), 'a')
+        self.assertEqual(val["i"], 5)
+
+        self.assertEqual(chr(val_packed["c"]), 'a')
+        self.assertEqual(val_packed["i"], 5)
+
+        gdb.set_convenience_variable("val", val)
+        gdb.set_convenience_variable("val_packed", val_packed)
+
+        self.assertEqual(gdb.parse_and_eval(f"sizeof($val)"), 8)
+        self.assertEqual(gdb.parse_and_eval(f"sizeof($val_packed)"), 5)
+
     def test_nested_struct(self):
         node_struct = {"value": 4, "next": {"value": 5, "next": None}}
         val = cval.value("node_ext", node_struct)
@@ -214,11 +231,11 @@ class TestValueBuilder(unittest.TestCase):
         val = cval.value_allocated("node", {"value": 4, "next": None})
         ptr = cval.pointer(val)
 
-        self.assertEqual(str(val.type), "struct node *")
+        self.assertEqual(str(val.type), "node *")
         self.assertEqual(val["value"], 4)
 
-        self.assertEqual(str(ptr.type), "struct node **")
-        self.assertEqual(str(ptr.dereference().type), "struct node *")
+        self.assertEqual(str(ptr.type), "node **")
+        self.assertEqual(str(ptr.dereference().type), "node *")
         self.assertEqual(ptr.dereference()["value"], 4)
 
         # cannot get pointer of gdb.Value that isn't allocated on the inferior's heap 

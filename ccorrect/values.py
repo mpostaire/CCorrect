@@ -83,12 +83,15 @@ class StructNode(ValueNode):
             self.__align_bytes(obj)
         return obj
 
-    # TODO doesn't work for structures with __attribute__((packed))
-    #       ---> check if works with aligned_alloc
-    # FIX idea: if sizeof % alignof != 0, we have a packed struct but gdb reports a wrong alignment: replace gdb's align by sizeof(smallest_type_in_struct)
     def __align_bytes(self, bytes):
+        # print(f"sizeof={self.type.sizeof} alignof={self.type.alignof}", file=sys.stderr)
+
         alignment = self.type.alignof
-        if len(bytes) % alignment != 0:  # TODO fix align handling (should check that is is a multiple of align, if not, append padding zeroes to make it multiple)
+        # is this struct packed (type.alignof is not 1, we need to manually check for this case)
+        if self.type.sizeof % alignment != 0:
+            alignment = 1
+
+        if len(bytes) % alignment != 0:
             padding = abs(alignment - len(bytes))
             bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
 
@@ -139,7 +142,7 @@ def parse_value(type, value, parent=None):
 
 def _value_as_bytes(type, value):
     if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type).strip_typedefs()
+        type = gdb.lookup_type(type)
 
     root = parse_value(type, value)
     # print_tree(root)
@@ -150,7 +153,7 @@ def print_tree(node, level=0):
     if level == 0:
         print("----------------")
 
-    print(f"{'  ' * level}type={node.type.strip_typedefs()}, value={node.value}")
+    print(f"{'  ' * level}type={node.type}, value={node.value}")
     for child in node.children:
         print_tree(child, level=level + 1)
 
@@ -163,19 +166,18 @@ def value(type, value):
     Returns a gdb.Value constructed from a python variable
     """
     if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type).strip_typedefs()
+        type = gdb.lookup_type(type)
 
     obj, root_type = _value_as_bytes(type, value)
     return gdb.Value(obj, root_type)
 
 
-# TODO keep track of allocated values to free them afterwards
 def value_allocated(type, value):
     """
     Returns a gdb.Value pointer to value (contents are allocated in the inferior's memory)
     """
     if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type).strip_typedefs()
+        type = gdb.lookup_type(type)
 
     obj, root_type = _value_as_bytes(type, value)
 
