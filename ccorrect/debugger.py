@@ -144,6 +144,15 @@ class Debugger():
 
         return gdb
 
+    def call(self, funcname, args):
+        parsed_args = []
+        for i, arg in enumerate(args):
+            var_name = f"tmp_arg{i}"
+            gdb.set_convenience_variable(var_name, arg)
+            parsed_args.append(f"${var_name}")
+
+        return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
+
     def _stop_event_handler(self, event):
         # this is needed to avoid parallel exec of the handler
         # https://stackoverflow.com/questions/25410568/continue-after-signal-with-a-python-script-in-gdb
