@@ -1,6 +1,7 @@
 from pycparser import c_ast, parse_file
 from os import path
 
+
 class FuncCallVisitor(c_ast.NodeVisitor):
     def __init__(self):
         self.func_calls = set()
@@ -74,6 +75,6 @@ class FuncCallParser():
             v.visit(ast)
 
             return v.func_calls
-        except Exception:
-            print(f"Error parsing file '{self.source_file}' to retreive function calls")
+        except Exception as e:
+            print(f"Error parsing file '{self.source_file}' to retreive function calls ({e})")
             return None

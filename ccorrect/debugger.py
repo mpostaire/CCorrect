@@ -40,7 +40,7 @@ class FuncBreakpoint(gdb.Breakpoint):
             args = {symbol.name: symbol.value(frame) for symbol in block if symbol.is_argument}
             return args
         except RuntimeError:
-            print("cant get args")
+            print("cannot get args")
             return None
 
     def stop(self):
@@ -133,10 +133,11 @@ class Debugger():
         self.__failures = failures
 
     def start(self):
+        gdb.execute("start")
+
+        # create breakpoints after start command to avoid the address sanitizer setup
         for func in self.__watches:
             FuncBreakpoint(self.stats, self.__failures, func)
-
-        gdb.execute("start")
 
         if self.timeout:
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
