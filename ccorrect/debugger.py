@@ -145,10 +145,16 @@ class Debugger():
 
         return gdb
 
+    def finish(self):
+        # detach inferior preocess to allow the leak sanitizer to work
+        # https://stackoverflow.com/a/54373833
+        gdb.execute("detach")
+
     def call(self, funcname, args=None):
         parsed_args = []
         if args is not None:
             for i, arg in enumerate(args):
+                # TODO if arg is not a gdb.Value, parse it using the type from the function respective arg
                 var_name = f"tmp_arg{i}"
                 gdb.set_convenience_variable(var_name, arg)
                 parsed_args.append(f"${var_name}")
