@@ -255,6 +255,7 @@ gdb = tester.start()
 
 unittest.main()
 
+tester.finish()
 
 # # /!\ Not supported ----> doable with gdb.parse_and_eval() using malloc for the whole size of the struct and
 # #                       setting manually the elements

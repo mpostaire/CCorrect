@@ -3,6 +3,7 @@
 !*.*
 *.o
 !test
+!example
 !ccorrect
 !ccorrect/utils
 !ccorrect/utils/**

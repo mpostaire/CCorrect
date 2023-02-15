@@ -83,9 +83,9 @@ class FuncBreakpoint(gdb.Breakpoint):
             failure = self.failures[self.location]
 
             err_ret = gdb.parse_and_eval(failure["return"])
-            gdb.set_convenience_variable("__Debugger_return_var", err_ret)
-            stats.returns.append(gdb.convenience_variable('__Debugger_return_var'))
-            gdb.execute(f"return $__Debugger_return_var")
+            gdb.set_convenience_variable("__CCorrect_return_var", err_ret)
+            stats.returns.append(gdb.convenience_variable('__CCorrect_return_var'))
+            gdb.execute(f"return $__CCorrect_return_var")
             # TODO handle case where if errno might not be in current context
             if "errno" in failure and failure["errno"]:
                 print(f"ERRNO SET TO {failure['errno']}")
@@ -155,7 +155,7 @@ class Debugger():
         if args is not None:
             for i, arg in enumerate(args):
                 # TODO if arg is not a gdb.Value, parse it using the type from the function respective arg
-                var_name = f"tmp_arg{i}"
+                var_name = f"__CCorrect_arg{i}"
                 gdb.set_convenience_variable(var_name, arg)
                 parsed_args.append(f"${var_name}")
 
