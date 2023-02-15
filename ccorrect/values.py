@@ -198,14 +198,14 @@ def string(str):
     """
     Helper to create a string as a gdb.value
     """
-    return value("char", [*str])
+    return value("char", [*str, '\0'])
 
 
 def string_allocated(str):
     """
     Helper to create a string as a gdb.value (contents allocated in the inferior's memory)
     """
-    return value_allocated("char", [*str])
+    return value_allocated("char", [*str, '\0'])
 
 
 def pointer(value):

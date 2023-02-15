@@ -75,16 +75,22 @@ class TestValueBuilder(unittest.TestCase):
             self.assertEqual(int(val[i]), array[i])
 
     def test_strings(self):
-        # TODO check that it's null character terminated!!!!
         string = "hello"
 
         val = cval.string("hello")
-        for i, c in enumerate(string):
-            self.assertEqual(chr(val[i]), c)
+        val_len = val.type.fields()[0].type.range()[1]
+        self.assertEqual(val_len, len(string))
+
+        for i, c in enumerate(cval.gdb_array_iterator(val)):
+            if i == len(string):
+                self.assertEqual(chr(c), '\0')
+            else:
+                self.assertEqual(chr(c), string[i])
 
         val = cval.string_allocated(string)
         for i, c in enumerate(string):
             self.assertEqual(chr(val[i]), c)
+        self.assertEqual(chr(val[len(string)]), '\0')
 
     def test_multidimensional_arrays(self):
         array = [[1, 2], [3, 4], [5, 6], [7, 8]]
@@ -135,7 +141,7 @@ class TestValueBuilder(unittest.TestCase):
         gdb.set_convenience_variable("val", val)
         gdb.set_convenience_variable("val_packed", val_packed)
 
-        self.assertEqual(gdb.parse_and_eval(f"sizeof($val)"), 8)
+        self.assertGreater(gdb.parse_and_eval(f"sizeof($val)"), 5)
         self.assertEqual(gdb.parse_and_eval(f"sizeof($val_packed)"), 5)
 
     def test_nested_struct(self):

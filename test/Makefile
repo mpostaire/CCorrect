@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -g -fno-builtin -std=c99
+CFLAGS=-Wall -Wextra -Og -g -fno-builtin -fsanitize=address -std=c99
 
 main: main.c
 	$(CC) $^ $(CFLAGS) -o $@
