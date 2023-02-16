@@ -210,10 +210,13 @@ def string_allocated(str):
 
 def pointer(value):
     """
-    Returns a gdb.Value pointer to value
-    value must be located in the memory of the inferior
+    Returns a gdb.Value pointer to value is value is an instance of gdb.Value (value must be located in the memory of the inferior).
+    Returns a gdb.Value pointer of type given by value if value is a string.
     """
-    return value_allocated(value.type, Ptr(value))
+    if isinstance(value, str):
+        return value_allocated(gdb.lookup_type(value), Ptr(0))
+    else:
+        return value_allocated(value.type, Ptr(value))
 
 
 def free_allocated_values():
