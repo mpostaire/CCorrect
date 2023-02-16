@@ -1,5 +1,6 @@
 import gdb
 import sys
+import os
 from ccorrect.parser import FuncCallParser
 from dataclasses import dataclass
 
@@ -148,7 +149,10 @@ class Debugger():
     def finish(self):
         # detach inferior preocess to allow the leak sanitizer to work
         # https://stackoverflow.com/a/54373833
+        pid = gdb.selected_inferior().pid
         gdb.execute("detach")
+        # waiting for the leak sanitizer checks to complete
+        os.waitpid(pid, 0)
 
     def call(self, funcname, args=None):
         parsed_args = []
