@@ -40,4 +40,4 @@ jobs:
         cd test
         make
         export PYTHONHOME=$pythonLocation
-        bash run.sh test_value_builder.py main
+        python test_value_builder.py
