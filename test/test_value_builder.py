@@ -259,4 +259,4 @@ class TestValueBuilder(unittest.TestCase):
 # MAYBE with ccorrect.debug("main") as debugger ???
 with ccorrect.test("main") as tester:
     gdb = tester.gdb()
-    unittest.main(exit=False)
+    unittest.main()
