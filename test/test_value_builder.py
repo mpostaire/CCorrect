@@ -255,8 +255,6 @@ class TestValueBuilder(unittest.TestCase):
             ptr = tester.pointer(val)
 
 
-# TODO better name than ccorrect.test() and tester (as the tests are really done by unittest; ccorrect is more of a debugger)
-# MAYBE with ccorrect.debug("main") as debugger ???
 with ccorrect.test("main") as tester:
     gdb = tester.gdb()
     unittest.main()
