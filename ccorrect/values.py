@@ -1,27 +1,14 @@
 import gdb
 import struct
 import sys
-
-allocated_addresses = []
-
-def gdb_array_iterator(value):
-    assert value.type.code == gdb.TYPE_CODE_ARRAY
-    # type_of_elements = value.type.target()
-    range_of_array = value.type.fields()[0].type.range()
-    len_of_array = range_of_array[1] + 1
-    for i in range(len_of_array):
-        yield value[i]
-
-
-def gdb_struct_iterator(value):
-    for f in value.type.fields():
-        yield f.name, value[f.name]
+from ccorrect import Ptr
 
 
 class ValueNode:
-    def __init__(self, type, value, parent=None):
+    def __init__(self, type, value, value_builder, parent=None):
         self.type = type
         self.value = value
+        self.value_builder = value_builder
         self.parent = parent
         self.children = []
 
@@ -49,7 +36,7 @@ class ArrayNode(ValueNode):
             self.__set_root_type()
 
         for elem in self.value:
-            self.children.append(parse_value(self.type.target(), elem, self))
+            self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
 
     def to_bytes(self):
         obj = bytearray()
@@ -74,7 +61,7 @@ class StructNode(ValueNode):
         super().__init__(*args, **kwargs)
 
         for f in self.type.fields():
-            self.children.append(parse_value(f.type, self.value[f.name], self))
+            self.children.append(self.value_builder._parse_value(f.type, self.value[f.name], self))
 
     def to_bytes(self):
         obj = bytearray()
@@ -100,7 +87,7 @@ class PointerNode(ValueNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.value is not None and not isinstance(self.value, Ptr):
-            self.children = [parse_value(self.type.target(), self.value, self)]
+            self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]
 
     def to_bytes(self):
         if isinstance(self.value, Ptr):
@@ -115,113 +102,99 @@ class PointerNode(ValueNode):
             inferior.write_memory(pointer, obj)
 
             address = int(pointer)
-            allocated_addresses.append(address)
+            self.value_builder.allocated_addresses.append(address)
 
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
 
 
-class Ptr(int):
-    def __init__(self, value):
-        if value < 0:
-            raise ValueError(f"Ptr must be 0 or positive (got {value})")
+class ValueBuilder:
+    def __init__(self):
+        self.allocated_addresses = []
 
-    def __str__(self):
-        return hex(self)
+    def _parse_value(self, type, value, parent=None):
+        if type.code == gdb.TYPE_CODE_PTR:
+            return PointerNode(type, Ptr(0) if value is None else value, self, parent=parent)
+        elif isinstance(value, (list, tuple)):
+            return ArrayNode(type, value, self, parent=parent)
+        elif isinstance(value, dict):
+            return StructNode(type, value, self, parent=parent)
+        else:
+            return ScalarNode(type, value, self, parent=parent)
 
+    def _value_as_bytes(self, type, value):
+        if not isinstance(type, gdb.Type):
+            type = gdb.lookup_type(type)
 
-def parse_value(type, value, parent=None):
-    if type.code == gdb.TYPE_CODE_PTR:
-        return PointerNode(type, Ptr(0) if value is None else value, parent=parent)
-    elif isinstance(value, (list, tuple)):
-        return ArrayNode(type, value, parent=parent)
-    elif isinstance(value, dict):
-        return StructNode(type, value, parent=parent)
-    else:
-        return ScalarNode(type, value, parent=parent)
+        root = self._parse_value(type, value)
+        # self._print_tree(root)
+        return root.to_bytes(), root.type
 
+    def _print_tree(self, node, level=0):
+        if level == 0:
+            print("----------------")
 
-def _value_as_bytes(type, value):
-    if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type)
+        print(f"{'  ' * level}type={node.type}, value={node.value}")
+        for child in node.children:
+            self._print_tree(child, level=level + 1)
 
-    root = parse_value(type, value)
-    # print_tree(root)
-    return root.to_bytes(), root.type
+        if level == 0:
+            print("----------------")
 
+    def value(self, type, value):
+        """
+        Returns a gdb.Value constructed from a python variable
+        """
+        if not isinstance(type, gdb.Type):
+            type = gdb.lookup_type(type)
 
-def print_tree(node, level=0):
-    if level == 0:
-        print("----------------")
+        obj, root_type = self._value_as_bytes(type, value)
+        return gdb.Value(obj, root_type)
 
-    print(f"{'  ' * level}type={node.type}, value={node.value}")
-    for child in node.children:
-        print_tree(child, level=level + 1)
+    def value_allocated(self, type, value):
+        """
+        Returns a gdb.Value pointer to value (contents are allocated in the inferior's memory)
+        """
+        if not isinstance(type, gdb.Type):
+            type = gdb.lookup_type(type)
 
-    if level == 0:
-        print("----------------")
+        obj, root_type = self._value_as_bytes(type, value)
 
+        # print(f"alloc size = {root_type.sizeof}")
+        pointer = gdb.parse_and_eval(f"malloc({root_type.sizeof})")
+        inferior = gdb.selected_inferior()
+        inferior.write_memory(pointer, obj)
 
-def value(type, value):
-    """
-    Returns a gdb.Value constructed from a python variable
-    """
-    if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type)
+        self.allocated_addresses.append(int(pointer))
 
-    obj, root_type = _value_as_bytes(type, value)
-    return gdb.Value(obj, root_type)
+        if root_type.code == gdb.TYPE_CODE_ARRAY:
+            return pointer.cast(root_type.target().pointer())
+        else:
+            return pointer.cast(root_type.pointer())
 
+    def string(self, str):
+        """
+        Helper to create a string as a gdb.value
+        """
+        return self.value("char", [*str, '\0'])
 
-def value_allocated(type, value):
-    """
-    Returns a gdb.Value pointer to value (contents are allocated in the inferior's memory)
-    """
-    if not isinstance(type, gdb.Type):
-        type = gdb.lookup_type(type)
+    def string_allocated(self, str):
+        """
+        Helper to create a string as a gdb.value (contents allocated in the inferior's memory)
+        """
+        return self.value_allocated("char", [*str, '\0'])
 
-    obj, root_type = _value_as_bytes(type, value)
+    def pointer(self, value_or_type, value=None):
+        if value is None:
+            value = value_or_type
+            assert isinstance(value, gdb.Value)
+            assert value.type.code == gdb.TYPE_CODE_PTR
+            return self.value_allocated(value.type, Ptr(value))
 
-    # print(f"alloc size = {root_type.sizeof}")
-    pointer = gdb.parse_and_eval(f"malloc({root_type.sizeof})")
-    inferior = gdb.selected_inferior()
-    inferior.write_memory(pointer, obj)
+        assert isinstance(value_or_type, str)
+        type = gdb.lookup_type(value_or_type).pointer()
+        return self.value(type, Ptr(value))
 
-    allocated_addresses.append(int(pointer))
-
-    if root_type.code == gdb.TYPE_CODE_ARRAY:
-        return pointer.cast(root_type.target().pointer())
-    else:
-        return pointer.cast(root_type.pointer())
-
-
-def string(str):
-    """
-    Helper to create a string as a gdb.value
-    """
-    return value("char", [*str, '\0'])
-
-
-def string_allocated(str):
-    """
-    Helper to create a string as a gdb.value (contents allocated in the inferior's memory)
-    """
-    return value_allocated("char", [*str, '\0'])
-
-
-def pointer(value):
-    """
-    Returns a gdb.Value pointer to value is value is an instance of gdb.Value (value must be located in the memory of the inferior).
-    Returns a gdb.Value pointer of type given by value if value is a string.
-    """
-    if isinstance(value, str):
-        return value_allocated(gdb.lookup_type(value), Ptr(0))
-    else:
-        return value_allocated(value.type, Ptr(value))
-
-
-def free_allocated_values():
-    global allocated_addresses
-
-    for address in allocated_addresses:
-        gdb.parse_and_eval(f"free({address})")
-    allocated_addresses = []
+    def free_allocated_values(self):
+        for address in self.allocated_addresses:
+            gdb.parse_and_eval(f"free({address})")
+        self.allocated_addresses = []
