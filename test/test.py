@@ -1,8 +1,9 @@
 import sys
+import unittest
+
 sys.path.append("../")
 
 import ccorrect
-import unittest
 
 
 class TestValueBuilder(unittest.TestCase):
@@ -255,6 +256,6 @@ class TestValueBuilder(unittest.TestCase):
             ptr = tester.pointer(val)
 
 
-with ccorrect.test("main") as tester:
+with ccorrect.Debugger("main") as tester:
     gdb = tester.gdb()
     unittest.main()

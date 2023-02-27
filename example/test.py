@@ -3,53 +3,58 @@ import sys
 sys.path.append("../")
 
 import ccorrect
+import unittest
 
-# TODO is there is an assertion error, memleak can trigger but we don't want this...
-# TODO what if ccorrect.run() is called multiple times? maybe should prevent that
-with ccorrect.test("main", source_files=["list.c"], silent_gdb=False) as tester:
-    list_ptr = tester.pointer(tester.pointer("node", 0))
 
-    nullptr = tester.pointer("void", 0)
-    tester.fail("malloc", nullptr)
+class TestValueBuilder(unittest.TestCase):
+    test_report = []
 
-    push_ret = tester.call("push", [list_ptr, 42])
+    def tearDown(self):
+        tester.free_allocated_values()
 
-    tester.stop_fail("malloc")
+    def test_1(self):
+        list_ptr = tester.pointer(tester.pointer("node", 0))
 
-    assert tester.stats["malloc"].called == 1
-    assert tester.stats["malloc"].returns[0] == 0 and push_ret == -1
+        nullptr = tester.pointer("void", 0)
+        tester.fail("malloc", nullptr)
 
-    push_ret = tester.call("push", [list_ptr, 42])
+        push_ret = tester.call("push", [list_ptr, 42])
 
-    assert tester.stats["malloc"].called == 2
-    # ensures that push() returns 0 if malloc succeeds
-    assert tester.stats["malloc"].returns[1] and push_ret == 0
+        tester.stop_fail("malloc")
 
-    push_ret = tester.call("push", [list_ptr, 24])
+        self.assertEqual(tester.stats["malloc"].called, 1)
+        self.assertEqual(tester.stats["malloc"].returns[0], 0)
+        self.assertEqual(push_ret, -1)
 
-    assert tester.stats["malloc"].called == 3
-    # ensures that push() returns 0 if malloc succeeds
-    assert tester.stats["malloc"].returns[2] and push_ret == 0
+        push_ret = tester.call("push", [list_ptr, 42])
 
-    # list_ptr['value'] is equivalent to list_ptr.dereference().dereference()['value']
-    assert list_ptr['value'] == 24
-    assert list_ptr['next']['value'] == 42
+        self.assertEqual(tester.stats["malloc"].called, 2)
+        # ensures that push() returns 0 if malloc succeeds
+        self.assertGreater(tester.stats["malloc"].returns[1], 0)
+        self.assertEqual(push_ret, 0)
 
-    pop_ret = tester.call("pop", [list_ptr])
+        push_ret = tester.call("push", [list_ptr, 24])
 
-    assert tester.stats["free"].called == 1
-    assert pop_ret == 24
+        self.assertEqual(tester.stats["malloc"].called, 3)
+        # ensures that push() returns 0 if malloc succeeds
+        self.assertGreater(tester.stats["malloc"].returns[2], 0)
+        self.assertEqual(push_ret, 0)
 
-    pop_ret = tester.call("pop", [list_ptr])
+        # list_ptr['value'] is equivalent to list_ptr.dereference().dereference()['value']
+        self.assertEqual(list_ptr['value'], 24)
+        self.assertEqual(list_ptr['next']['value'], 42)
 
-    assert tester.stats["free"].called == 2
-    assert pop_ret == 42
+        pop_ret = tester.call("pop", [list_ptr])
 
-    # try:
-    #     tester.call("memleak")
-    #     # tester.call("out_of_bounds")
-    # except:
-    #     exit(1)
+        self.assertEqual(tester.stats["free"].called, 1)
+        self.assertEqual(pop_ret, 24)
 
-    # free allocated values to avoid a false positive memory leak report by the leak sanitizer
-    tester.free_allocated_values()
+        pop_ret = tester.call("pop", [list_ptr])
+
+        self.assertEqual(tester.stats["free"].called, 2)
+        self.assertEqual(pop_ret, 42)
+
+
+with ccorrect.Debugger("main", source_files=["list.c"]) as tester:
+    gdb = tester.gdb()
+    unittest.main()
