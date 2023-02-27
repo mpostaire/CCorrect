@@ -38,6 +38,5 @@ jobs:
     - name: Run tests
       run: |
         cd test
-        make
         export PYTHONHOME=$pythonLocation
-        python test_value_builder.py
+        python run.py
