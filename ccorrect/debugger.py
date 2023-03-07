@@ -1,17 +1,16 @@
 import gdb
 import sys
 import os
-from dataclasses import dataclass
 from ccorrect.parser import FuncCallParser
 from ccorrect.values import ValueBuilder
 
 
-@dataclass
 class FuncStats:
-    name: str
-    called: int
-    args: list
-    returns: list
+    def __init__(self, name: str, called: int, args: list, returns: list):
+        self.name = name
+        self.called = called
+        self.args = args
+        self.returns = returns
 
 
 class FuncFinishBreakpoint(gdb.FinishBreakpoint):
@@ -104,9 +103,11 @@ class Debugger(ValueBuilder):
         gdb.events.stop.connect(self._stop_event_handler)
         gdb.events.exited.connect(self._exited_event_handler)
 
-        # if debuginfod is present, enable it to get debug symbols from files without them --> useful for shared libraries libc
-        # TODO adapt this for the inginious container (it's better if we get debug symbols for the libc directly from the container for performance purposes)
-        gdb.set_parameter("debuginfod enabled", "on")
+        # enable debuginfod if possible
+        try:
+            gdb.execute("set debuginfod enabled on")
+        except gdb.error:
+            print(f"debuginfod cannot be enabled", file=sys.stderr)
 
     def __enter__(self):
         self.start()
@@ -192,12 +193,12 @@ class Debugger(ValueBuilder):
     def _stop_event_handler(self, event):
         # this is needed to avoid parallel exec of the handler
         # https://stackoverflow.com/questions/25410568/continue-after-signal-with-a-python-script-in-gdb
-        gdb.set_parameter("scheduler-locking", "on")
+        gdb.execute("set scheduler-locking on")
 
         # the breakpoint on main() created by the gdb start command will call this handler so we ignore all events that aren't signals
         # this handler won't be called by our own FuncBreakpoint and FuncFinishBreakpoint because they never stop (their stop method always return False)
         if not isinstance(event, gdb.SignalEvent):
-            gdb.set_parameter("scheduler-locking", "off")
+            gdb.execute("set scheduler-locking off")
             return
 
         print(f"GOT EVENT {event.stop_signal}", file=sys.stderr)
