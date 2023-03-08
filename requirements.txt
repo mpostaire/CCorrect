@@ -1,1 +1,2 @@
 pycparser==2.21
+PyYAML==6.0

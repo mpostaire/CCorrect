@@ -3,12 +3,10 @@ import sys
 sys.path.append("../")
 
 import ccorrect
-import unittest
+import ccorrect.testing as ctest
 
 
-class TestValueBuilder(unittest.TestCase):
-    test_report = []
-
+class TestValueBuilder(ctest.CCorrectTestCase):
     def tearDown(self):
         tester.free_allocated_values()
 
@@ -57,4 +55,4 @@ class TestValueBuilder(unittest.TestCase):
 
 with ccorrect.Debugger("main", source_files=["list.c"]) as tester:
     gdb = tester.gdb()
-    unittest.main()
+    ctest.run_tests()  # TODO run tests of TestCase passed as argument

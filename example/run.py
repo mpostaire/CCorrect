@@ -1,4 +1,4 @@
-#! /bin/python3
+#!/bin/python3
 
 import sys
 
@@ -8,4 +8,5 @@ import ccorrect
 import subprocess
 
 subprocess.run(["make"])
-ccorrect.run("test.py")
+results = ccorrect.run("test.py")
+print("failed" if results["summary"]["failed"] > 0 else "success")
