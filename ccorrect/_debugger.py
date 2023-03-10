@@ -169,8 +169,16 @@ class Debugger(ValueBuilder):
     def call(self, funcname, args=None):
         parsed_args = []
         if args is not None:
-            for i, arg in enumerate(args):
+            sym, _ = gdb.lookup_symbol(funcname)
+            arg_types = [x.type for x in sym.type.fields()]
+            for i, type in enumerate(arg_types):
                 # TODO if arg is not a gdb.Value, parse it using the type from the function respective arg
+                #       (currently tested for basic values, this needs better testing)
+                arg = args[i]
+                if not isinstance(arg, gdb.Value):
+                    # print(arg, type, file=sys.stderr)
+                    arg = self.value(type, arg)
+
                 var_name = f"__CCorrect_arg{i}"
                 gdb.set_convenience_variable(var_name, arg)
                 parsed_args.append(f"${var_name}")
