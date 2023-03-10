@@ -11,7 +11,7 @@ def run(test_script, silent_gdb=True):
         return None
 
     try:
-        with open("results.yml", "r") as f:
+        with open(os.path.join(os.path.dirname(test_script), "results.yml"), "r") as f:
             return yaml_load(f)
     except FileNotFoundError:
         return None
