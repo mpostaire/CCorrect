@@ -257,5 +257,5 @@ class TestValueBuilder(unittest.TestCase):
 
 
 with ccorrect.Debugger("main") as tester:
-    gdb = tester.gdb()
+    gdb = tester.gdb
     unittest.main()

@@ -9,4 +9,4 @@ import subprocess
 
 subprocess.run(["make"])
 results = ccorrect.run("test.py")
-print("failed" if results["summary"]["failed"] > 0 else "success")
+print("success" if results["summary"]["score"] == 100 else "failed")

@@ -1,5 +1,6 @@
 import os
 import unittest
+import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
 
@@ -25,11 +26,12 @@ class MetaCCorrectTestCase(type):
 
 class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
     longMessage = False
+    tester = None
 
 
-def test_metadata(problem=None, description=None, weight=1, timeout=5):
+def test_metadata(problem=None, description=None, weight=1, timeout=0):
     assert weight >= 0
-    assert timeout >= 5
+    assert timeout >= 0
 
     def decorator(func):
         func.__CCorrect_metadata_wrapped = True
@@ -42,16 +44,23 @@ def test_metadata(problem=None, description=None, weight=1, timeout=5):
             __test_reports.append({
                 "problem": func.__name__ if problem is None else problem,
                 "description": "" if description is None else description,
-                "weight": weight
+                "weight": weight,
+                "success": False
             })
 
+            self.tester.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
             except Exception as e:
-                __test_reports[-1]["success"] = False
                 push_info_msg(str(e))
                 raise e
-            __test_reports[-1]["success"] = True
+            else:
+                __test_reports[-1]["success"] = True
+            finally:
+                _push_output()
+                pid = gdb.selected_inferior().pid
+                self.tester.finish()
+                _push_asan_logs(pid)
 
         return wrapper
 
@@ -79,27 +88,57 @@ def push_tag(tag):
         __test_reports[-1]["tags"] = [tag]
 
 
-def run_tests():
+# TODO this doesnt collect memleaks of libasan because they are printed at the end of the execution
+#       --> find a way to do so.
+# MAYBE I have no choice than executing the program fully for each test method.
+#       --> then I need to create a quick_restart method in the Debugger class that does not resetup everything (sinon c'est lent)
+def _push_output():
+    gdb.parse_and_eval("(int) fflush(0)")
+
+    # TODO don't truncate (this way we keep the file contents if needed) but keep track of how much has been read
+    # read stdout and stderr, then remove their contents for the next test
+    with open("stdout.txt", "r") as f:
+        __test_reports[-1]["stdout"] = f.read()
+    with open("stderr.txt", "r") as f:
+        __test_reports[-1]["stderr"] = f.read()
+
+    os.remove("stdout.txt")
+    os.remove("stderr.txt")
+
+
+def _push_asan_logs(pid):
+    asan_log_path = f"asan_log.{pid}"
+    try:
+        with open(asan_log_path, "r") as f:
+            __test_reports[-1]["asan_log"] = f.read()
+        os.remove(asan_log_path)
+    except FileNotFoundError:
+        pass
+
+
+def run_tests(verbosity=0):
+    # TODO test_case_classes argument that is used to build test suites
+    #      --> only allow 'CCorrectTestCase' subclasses
+
     try:
         os.remove("results.yml")
     except FileNotFoundError:
         pass
 
-    unittest.main(exit=False)
+    unittest.main(exit=False, verbosity=verbosity)
 
     total = len(__test_reports)
-
     succeeded = 0
-    weighted_score = 0
+    score = 0
     sum_weights = 0
     for r in __test_reports:
         if r["success"]:
             succeeded += 1
-            weighted_score += r["weight"]
+            score += r["weight"]
         sum_weights += r["weight"]
 
     if sum_weights > 0:
-        weighted_score /= sum_weights
+        score /= sum_weights
 
     with open("results.yml", "w") as f:
         data = {
@@ -107,7 +146,7 @@ def run_tests():
                 "total": total,
                 "succeeded": succeeded,
                 "failed": total - succeeded,
-                "weighted_score": round(weighted_score * 100, 2),
+                "score": round(score * 100, 2),
             },
             "details": __test_reports
         }

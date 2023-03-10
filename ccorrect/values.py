@@ -118,7 +118,7 @@ class PointerNode(ValueNode):
             obj = child.to_bytes()
 
             # print(f"alloc size = {child.type.sizeof}")
-            pointer = gdb.parse_and_eval(f"malloc({child.type.sizeof})")
+            pointer = gdb.parse_and_eval(f"(void *) malloc({child.type.sizeof})")
             inferior = gdb.selected_inferior()
             inferior.write_memory(pointer, obj)
 
@@ -181,7 +181,7 @@ class ValueBuilder:
         obj, root_type = self._value_as_bytes(type, value)
 
         # print(f"alloc size = {root_type.sizeof}")
-        pointer = gdb.parse_and_eval(f"malloc({root_type.sizeof})")
+        pointer = gdb.parse_and_eval(f"(void *) malloc({root_type.sizeof})")
         inferior = gdb.selected_inferior()
         inferior.write_memory(pointer, obj)
 

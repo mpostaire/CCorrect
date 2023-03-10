@@ -78,36 +78,40 @@ class FuncBreakpoint(gdb.Breakpoint):
 
 
 class Debugger(ValueBuilder):
-    def __init__(self, program, source_files=None, watches=None, excludes=None, banned=None, timeout=0):
+    def __init__(self, program, source_files=None, watches=None, excludes=None, banned=None):
         super().__init__()
+        self.gdb = gdb
         self.program = program
-        self.timeout = timeout
-        self.stats = {}
         self.__failures = {}
         self.__sources_func_calls = set()
         self.__watches = set()
         self.__banned = set()
-        self.__is_running = False
 
         if source_files:
             self.__add_func_calls(source_files)
         if watches:
-            self.add_watches(watches)
+            self.__watches.update(set(watches))
         if excludes:
-            self.add_excludes(excludes)
+            self.__watches.difference_update(set(excludes))
         if banned:
-            self.__banned.update(banned)
+            self.__banned.update(set(banned))
 
-        self.add_watches_from_sources()
+        for f in self.__sources_func_calls:
+            self.__watches.add(f)
 
-        gdb.events.stop.connect(self._stop_event_handler)
-        gdb.events.exited.connect(self._exited_event_handler)
+        gdb.events.stop.connect(self.__stop_event_handler)
+        gdb.events.exited.connect(self.__exited_event_handler)
 
         # enable debuginfod if possible
         try:
             gdb.execute("set debuginfod enabled on")
         except gdb.error:
             print(f"debuginfod cannot be enabled", file=sys.stderr)
+
+        for f in self.__sources_func_calls:
+            if f in self.__banned:
+                print(f"'{f}' is a banned function", file=sys.stderr)
+                gdb.execute("quit 1")
 
     def __enter__(self):
         self.start()
@@ -122,59 +126,50 @@ class Debugger(ValueBuilder):
             if func_calls:
                 self.__sources_func_calls.update(func_calls)
 
-    def add_watches_from_sources(self, source_files=None):
-        if source_files is not None:
-            self.__add_func_calls(source_files)
-
-        for f in self.__sources_func_calls:
-            self.__watches.add(f)
-
-    def add_watches(self, functions):
-        self.__watches.update(functions)
-
-    def add_excludes(self, functions):
-        self.__watches.difference_update(set(functions))
-
     def fail(self, function, retval):
         self.__failures[function] = {"return": retval}
 
     def stop_fail(self, function):
         del self.__failures[function]
 
-    def start(self):
-        if self.__is_running:
-            return
+    def start(self, timeout=0):
+        if gdb.convenience_variable("__CCorrect_debugging") != None:
+            raise RuntimeError("Another program is already being run by gdb")
 
-        for f in self.__sources_func_calls:
-            if f in self.__banned:
-                print(f"'{f}' is a banned function", file=sys.stderr)
-                gdb.execute("quit 1")
+        self.stats = {}
 
         gdb.execute(f"file {self.program}")  # load program
-        gdb.execute("start")
+        gdb.execute("start 1> stdout.txt 2> stderr.txt")
 
         # create breakpoints after start command to avoid the address sanitizer setup
         for func in self.__watches:
             FuncBreakpoint(self.stats, self.__failures, func)
 
-        if self.timeout:
+        if timeout > 0:
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
-            gdb.parse_and_eval(f"alarm({self.timeout})")
+            gdb.parse_and_eval(f"(unsigned int) alarm({timeout})")
 
-        self.__is_running = True
-        return
+        gdb.set_convenience_variable("__CCorrect_debugging", id(self))
 
-    def finish(self):
+    def finish(self, free_allocated_values=True):
+        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
+            raise RuntimeError("Another program is already being run by gdb")
+
+        if free_allocated_values:
+            self.free_allocated_values()
+        self.__wait_leak_sanitizer()
+
+        gdb.execute("file")  # discard any info on the loaded program and the symbol table
+        gdb.execute("delete")  # delete all breakpoints
+        gdb.set_convenience_variable("__CCorrect_debugging", None)
+
+    def __wait_leak_sanitizer(self):
         # detach inferior process to allow the leak sanitizer to work
         # https://stackoverflow.com/a/54373833
         pid = gdb.selected_inferior().pid
         gdb.execute("detach")
         # waiting for the leak sanitizer checks to complete
         os.waitpid(pid, 0)
-
-        gdb.execute("delete")  # delete all breakpoints
-        gdb.execute("file")  # discard any info on the loaded programm and the symbol table
-        self.__is_running = False
 
     def call(self, funcname, args=None):
         parsed_args = []
@@ -187,10 +182,7 @@ class Debugger(ValueBuilder):
 
         return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
 
-    def gdb(self):
-        return gdb
-
-    def _stop_event_handler(self, event):
+    def __stop_event_handler(self, event):
         # this is needed to avoid parallel exec of the handler
         # https://stackoverflow.com/questions/25410568/continue-after-signal-with-a-python-script-in-gdb
         gdb.execute("set scheduler-locking on")
@@ -203,7 +195,7 @@ class Debugger(ValueBuilder):
 
         print(f"GOT EVENT {event.stop_signal}", file=sys.stderr)
 
-    def _exited_event_handler(self, event):
+    def __exited_event_handler(self, event):
         print(f"event type: exit ({event})")
         if hasattr(event, 'exit_code'):
             print(f"exit code: {event.exit_code}")
