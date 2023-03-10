@@ -99,15 +99,6 @@ class Debugger(ValueBuilder):
         for f in self.__sources_func_calls:
             self.__watches.add(f)
 
-        gdb.events.stop.connect(self.__stop_event_handler)
-        gdb.events.exited.connect(self.__exited_event_handler)
-
-        # enable debuginfod if possible
-        try:
-            gdb.execute("set debuginfod enabled on")
-        except gdb.error:
-            print(f"debuginfod cannot be enabled", file=sys.stderr)
-
         for f in self.__sources_func_calls:
             if f in self.__banned:
                 print(f"'{f}' is a banned function", file=sys.stderr)
@@ -138,6 +129,15 @@ class Debugger(ValueBuilder):
 
         self.stats = {}
 
+        # enable debuginfod if possible
+        try:
+            gdb.execute("set debuginfod enabled on")
+        except gdb.error:
+            print(f"debuginfod cannot be enabled", file=sys.stderr)
+
+        gdb.events.stop.connect(self.__stop_event_handler)
+        gdb.events.exited.connect(self.__exited_event_handler)
+
         gdb.execute(f"file {self.program}")  # load program
         gdb.execute("start 1> stdout.txt 2> stderr.txt")
 
@@ -159,17 +159,12 @@ class Debugger(ValueBuilder):
             self.free_allocated_values()
         self.__wait_leak_sanitizer()
 
+        gdb.events.stop.disconnect(self.__stop_event_handler)
+        gdb.events.exited.disconnect(self.__exited_event_handler)
+
         gdb.execute("file")  # discard any info on the loaded program and the symbol table
         gdb.execute("delete")  # delete all breakpoints
         gdb.set_convenience_variable("__CCorrect_debugging", None)
-
-    def __wait_leak_sanitizer(self):
-        # detach inferior process to allow the leak sanitizer to work
-        # https://stackoverflow.com/a/54373833
-        pid = gdb.selected_inferior().pid
-        gdb.execute("detach")
-        # waiting for the leak sanitizer checks to complete
-        os.waitpid(pid, 0)
 
     def call(self, funcname, args=None):
         parsed_args = []
@@ -181,6 +176,14 @@ class Debugger(ValueBuilder):
                 parsed_args.append(f"${var_name}")
 
         return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
+
+    def __wait_leak_sanitizer(self):
+        # detach inferior process to allow the leak sanitizer to work
+        # https://stackoverflow.com/a/54373833
+        pid = gdb.selected_inferior().pid
+        gdb.execute("detach")
+        # waiting for the leak sanitizer checks to complete
+        os.waitpid(pid, 0)
 
     def __stop_event_handler(self, event):
         # this is needed to avoid parallel exec of the handler

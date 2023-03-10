@@ -1,11 +1,10 @@
 import os
 import unittest
-import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
 from ccorrect import Debugger
 
-__test_reports = []
+_test_results = []
 
 
 class MetaCCorrectTestCase(type):
@@ -18,7 +17,7 @@ class MetaCCorrectTestCase(type):
             value = dict[attr]
 
             is_test_method = callable(value) and value.__name__.startswith("test")
-            is_wrapped_by_metadata = hasattr(value, '__CCorrect_metadata_wrapped')
+            is_wrapped_by_metadata = hasattr(value, '__CCorrect_test_has_metadata')
             if is_test_method and not is_wrapped_by_metadata:
                 dict[attr] = test_metadata(value)
 
@@ -27,12 +26,43 @@ class MetaCCorrectTestCase(type):
 
 class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
     longMessage = False
-    tester = None
+    debugger = None
 
     def __init__(self, methodName: str = "runTest") -> None:
-        if not isinstance(self.tester, Debugger):
-            raise ValueError("Invalid 'tester' class attribute value") 
+        if not isinstance(self.debugger, Debugger):
+            raise ValueError("Invalid 'debugger' class attribute value") 
         super().__init__(methodName)
+
+    def push_info_msg(self, msg):
+        if "messages" in _test_results[-1]:
+            _test_results[-1]["messages"].append(msg)
+        else:
+            _test_results[-1]["messages"] = [msg]
+
+    def push_tag(self, tag):
+        if "tags" in _test_results[-1]:
+            _test_results[-1]["tags"].append(tag)
+        else:
+            _test_results[-1]["tags"] = [tag]
+
+    def _push_output(self):
+        self.debugger.gdb.parse_and_eval("(int) fflush(0)")
+
+        with open("stdout.txt", "r+") as f:
+            _test_results[-1]["stdout"] = f.read()
+            f.truncate(0)
+        with open("stderr.txt", "r+") as f:
+            _test_results[-1]["stderr"] = f.read()
+            f.truncate(0)
+
+    def _push_asan_logs(self, pid):
+        asan_log_path = f"asan_log.{pid}"
+        try:
+            with open(asan_log_path, "r") as f:
+                _test_results[-1]["asan_log"] = f.read()
+            os.remove(asan_log_path)
+        except FileNotFoundError:
+            pass
 
 
 def test_metadata(problem=None, description=None, weight=1, timeout=0):
@@ -40,33 +70,33 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
     assert timeout >= 0
 
     def decorator(func):
-        func.__CCorrect_metadata_wrapped = True
+        func.__CCorrect_test_has_metadata = True
 
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             if not isinstance(self, CCorrectTestCase):
                 raise TypeError(f"The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
 
-            __test_reports.append({
+            _test_results.append({
                 "problem": func.__name__ if problem is None else problem,
                 "description": "" if description is None else description,
                 "weight": weight,
                 "success": False
             })
 
-            self.tester.start(timeout=timeout)
+            self.debugger.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
             except Exception as e:
-                push_info_msg(str(e))
+                self.push_info_msg(str(e))
                 raise e
             else:
-                __test_reports[-1]["success"] = True
+                _test_results[-1]["success"] = True
             finally:
-                _push_output()
-                pid = gdb.selected_inferior().pid
-                self.tester.finish()
-                _push_asan_logs(pid)
+                self._push_output()
+                pid = self.debugger.gdb.selected_inferior().pid
+                self.debugger.finish()
+                self._push_asan_logs(pid)
 
         return wrapper
 
@@ -80,48 +110,6 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
         return decorator
 
 
-def push_info_msg(msg):
-    if "messages" in __test_reports[-1]:
-        __test_reports[-1]["messages"].append(msg)
-    else:
-        __test_reports[-1]["messages"] = [msg]
-
-
-def push_tag(tag):
-    if "tags" in __test_reports[-1]:
-        __test_reports[-1]["tags"].append(tag)
-    else:
-        __test_reports[-1]["tags"] = [tag]
-
-
-# TODO this doesnt collect memleaks of libasan because they are printed at the end of the execution
-#       --> find a way to do so.
-# MAYBE I have no choice than executing the program fully for each test method.
-#       --> then I need to create a quick_restart method in the Debugger class that does not resetup everything (sinon c'est lent)
-def _push_output():
-    gdb.parse_and_eval("(int) fflush(0)")
-
-    # TODO don't truncate (this way we keep the file contents if needed) but keep track of how much has been read
-    # read stdout and stderr, then remove their contents for the next test
-    with open("stdout.txt", "r") as f:
-        __test_reports[-1]["stdout"] = f.read()
-    with open("stderr.txt", "r") as f:
-        __test_reports[-1]["stderr"] = f.read()
-
-    os.remove("stdout.txt")
-    os.remove("stderr.txt")
-
-
-def _push_asan_logs(pid):
-    asan_log_path = f"asan_log.{pid}"
-    try:
-        with open(asan_log_path, "r") as f:
-            __test_reports[-1]["asan_log"] = f.read()
-        os.remove(asan_log_path)
-    except FileNotFoundError:
-        pass
-
-
 def run_tests(verbosity=0):
     # TODO test_case_classes argument that is used to build test suites
     #      --> only allow 'CCorrectTestCase' subclasses
@@ -131,13 +119,20 @@ def run_tests(verbosity=0):
     except FileNotFoundError:
         pass
 
+    _test_results.clear()
     unittest.main(exit=False, verbosity=verbosity)
 
-    total = len(__test_reports)
+    try:
+        os.remove("stdout.txt")
+        os.remove("stderr.txt")
+    except FileNotFoundError:
+        pass
+
+    total = len(_test_results)
     succeeded = 0
     score = 0
     sum_weights = 0
-    for r in __test_reports:
+    for r in _test_results:
         if r["success"]:
             succeeded += 1
             score += r["weight"]
@@ -154,6 +149,6 @@ def run_tests(verbosity=0):
                 "failed": total - succeeded,
                 "score": round(score * 100, 2),
             },
-            "details": __test_reports
+            "details": _test_results
         }
         yaml_dump(data=data, stream=f, sort_keys=False)
