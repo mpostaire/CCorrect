@@ -4,7 +4,7 @@ from functools import wraps
 from yaml import safe_dump as yaml_dump
 from ccorrect import Debugger
 
-_test_results = []
+_test_results = {}
 
 
 class MetaCCorrectTestCase(type):
@@ -34,32 +34,26 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         super().__init__(methodName)
 
     def push_info_msg(self, msg):
-        if "messages" in _test_results[-1]:
-            _test_results[-1]["messages"].append(msg)
-        else:
-            _test_results[-1]["messages"] = [msg]
+        _test_results[self.__current_problem]["tests"][-1]["messages"].append(msg)
 
     def push_tag(self, tag):
-        if "tags" in _test_results[-1]:
-            _test_results[-1]["tags"].append(tag)
-        else:
-            _test_results[-1]["tags"] = [tag]
+        _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
 
     def _push_output(self):
         self.debugger.gdb.parse_and_eval("(int) fflush(0)")
 
         with open("stdout.txt", "r+") as f:
-            _test_results[-1]["stdout"] = f.read()
+            _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
             f.truncate(0)
         with open("stderr.txt", "r+") as f:
-            _test_results[-1]["stderr"] = f.read()
+            _test_results[self.__current_problem]["tests"][-1]["stderr"] = f.read()
             f.truncate(0)
 
     def _push_asan_logs(self, pid):
         asan_log_path = f"asan_log.{pid}"
         try:
             with open(asan_log_path, "r") as f:
-                _test_results[-1]["asan_log"] = f.read()
+                _test_results[self.__current_problem]["tests"][-1]["asan_log"] = f.read()
             os.remove(asan_log_path)
         except FileNotFoundError:
             pass
@@ -77,21 +71,31 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             if not isinstance(self, CCorrectTestCase):
                 raise TypeError(f"The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
 
-            _test_results.append({
-                "problem": func.__name__ if problem is None else problem,
+            pb = func.__name__ if problem is None else problem
+            self._CCorrectTestCase__current_problem = pb
+            if not pb in _test_results:
+                _test_results[pb] = {
+                    "success": True,
+                    "score": 0,
+                    "tests": []
+                }
+
+            _test_results[pb]["tests"].append({
                 "description": "" if description is None else description,
                 "weight": weight,
-                "success": False
+                "success": True,
+                "messages": [],
+                "tags": []
             })
 
             self.debugger.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
             except Exception as e:
+                _test_results[pb]["tests"][-1]["success"] = False
+                _test_results[pb]["success"] = False
                 self.push_info_msg(str(e))
                 raise e
-            else:
-                _test_results[-1]["success"] = True
             finally:
                 self._push_output()
                 pid = self.debugger.gdb.selected_inferior().pid
@@ -128,18 +132,26 @@ def run_tests(verbosity=0):
     except FileNotFoundError:
         pass
 
-    total = len(_test_results)
+    total = sum([len(x) for x in _test_results.values()])
     succeeded = 0
-    score = 0
-    sum_weights = 0
-    for r in _test_results:
-        if r["success"]:
-            succeeded += 1
-            score += r["weight"]
-        sum_weights += r["weight"]
+    total_score = 0
+    total_sum_weights = 0
+    for problem in _test_results.values():
+        problem_sum_weights = 0
+        for t in problem["tests"]:
+            if t["success"]:
+                succeeded += 1
+                total_score += t["weight"]
+                problem["score"] += t["weight"]
 
-    if sum_weights > 0:
-        score /= sum_weights
+            problem_sum_weights += t["weight"]
+            total_sum_weights += t["weight"]
+
+        if problem_sum_weights > 0:
+            problem["score"] = round((problem["score"] / problem_sum_weights) * 100, 2)
+
+    if total_sum_weights > 0:
+        total_score /= total_sum_weights
 
     with open("results.yml", "w") as f:
         data = {
@@ -147,8 +159,8 @@ def run_tests(verbosity=0):
                 "total": total,
                 "succeeded": succeeded,
                 "failed": total - succeeded,
-                "score": round(score * 100, 2),
+                "score": round(total_score * 100, 2),
             },
-            "details": _test_results
+            "problems": _test_results
         }
         yaml_dump(data=data, stream=f, sort_keys=False)
