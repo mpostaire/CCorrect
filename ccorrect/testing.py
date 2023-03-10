@@ -36,7 +36,7 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
 
 
 def test_metadata(problem=None, description=None, weight=1, timeout=0):
-    assert weight >= 0
+    assert weight >= 1
     assert timeout >= 0
 
     def decorator(func):
