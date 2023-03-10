@@ -3,6 +3,7 @@ import unittest
 import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
+from ccorrect import Debugger
 
 __test_reports = []
 
@@ -27,6 +28,11 @@ class MetaCCorrectTestCase(type):
 class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
     longMessage = False
     tester = None
+
+    def __init__(self, methodName: str = "runTest") -> None:
+        if not isinstance(self.tester, Debugger):
+            raise ValueError("Invalid 'tester' class attribute value") 
+        super().__init__(methodName)
 
 
 def test_metadata(problem=None, description=None, weight=1, timeout=0):
