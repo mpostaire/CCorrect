@@ -1,8 +1,8 @@
 import gdb
 import sys
 import os
-from ccorrect.parser import FuncCallParser
-from ccorrect.values import ValueBuilder
+from ccorrect._parser import FuncCallParser
+from ccorrect._values import ValueBuilder
 
 
 class FuncStats:

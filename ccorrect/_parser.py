@@ -64,7 +64,7 @@ class FuncCallVisitor(c_ast.NodeVisitor):
 class FuncCallParser():
     def __init__(self, source_file):
         self.source_file = source_file
-        self.__include_path = path.join(path.dirname(__file__), "utils/fake_libc_include")
+        self.__include_path = path.join(path.dirname(__file__), "_utils/fake_libc_include")
 
     def parse(self):
         try:

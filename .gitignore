@@ -6,8 +6,8 @@
 !test
 !example
 !ccorrect
-!ccorrect/utils
-!ccorrect/utils/**
+!ccorrect/_utils
+!ccorrect/_utils/**
 !.github/**
 !Makefile
 .vscode
