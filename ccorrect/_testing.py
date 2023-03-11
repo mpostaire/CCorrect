@@ -1,5 +1,6 @@
 import os
 import unittest
+import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
 from ccorrect import Debugger
@@ -40,7 +41,7 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
 
     def _push_output(self):
-        self.debugger.gdb.parse_and_eval("(int) fflush(0)")
+        gdb.parse_and_eval("(int) fflush(0)")
 
         with open("stdout.txt", "r+") as f:
             _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
@@ -91,14 +92,20 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             self.debugger.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
+            except AssertionError as e:
+                _test_results[pb]["tests"][-1]["success"] = False
+                _test_results[pb]["success"] = False
+                self.push_info_msg(str(e))
+                raise e
             except Exception as e:
+                # TODO handle error
                 _test_results[pb]["tests"][-1]["success"] = False
                 _test_results[pb]["success"] = False
                 self.push_info_msg(str(e))
                 raise e
             finally:
                 self._push_output()
-                pid = self.debugger.gdb.selected_inferior().pid
+                pid = gdb.selected_inferior().pid
                 self.debugger.finish()
                 self._push_asan_logs(pid)
 
@@ -132,7 +139,7 @@ def run_tests(verbosity=0):
     except FileNotFoundError:
         pass
 
-    total = sum([len(x) for x in _test_results.values()])
+    total = sum([len(x["tests"]) for x in _test_results.values()])
     succeeded = 0
     total_score = 0
     total_sum_weights = 0

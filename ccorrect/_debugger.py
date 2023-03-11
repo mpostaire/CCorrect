@@ -1,6 +1,7 @@
 import gdb
 import sys
 import os
+from contextlib import contextmanager
 from ccorrect._parser import FuncCallParser
 from ccorrect._values import ValueBuilder
 
@@ -25,10 +26,11 @@ class FuncFinishBreakpoint(gdb.FinishBreakpoint):
 
 
 class FuncBreakpoint(gdb.Breakpoint):
-    def __init__(self, stats, failures, *args, **kwargs):
+    def __init__(self, stats, failures, banned, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stats = stats
         self.failures = failures
+        self.banned = banned
 
     def get_args(self):
         try:
@@ -41,6 +43,12 @@ class FuncBreakpoint(gdb.Breakpoint):
 
     def stop(self):
         # allow force fail (don't execute function and change its return value and/or errno)
+
+        if self.location in self.banned:
+            # TODO raising error inside a gdb function call produces this error:
+            # gdb.error: The program being debugged stopped while in a function called from GDB.
+            # this is not good: find another way to report a runtime call of a banned function.
+            raise RuntimeError(f"'{self.location}' is a banned function")
 
         fail = self.location in self.failures
         if not fail:
@@ -78,21 +86,21 @@ class FuncBreakpoint(gdb.Breakpoint):
 
 
 class Debugger(ValueBuilder):
-    def __init__(self, program, source_files=None, watches=None, excludes=None, banned=None):
+    def __init__(self, program, source_files=None, banned=None):
         super().__init__()
-        self.gdb = gdb
         self.program = program
+        self.stats = {}
+        self.__breakpoints = {}
         self.__failures = {}
         self.__sources_func_calls = set()
         self.__watches = set()
         self.__banned = set()
 
         if source_files:
-            self.__add_func_calls(source_files)
-        if watches:
-            self.__watches.update(set(watches))
-        if excludes:
-            self.__watches.difference_update(set(excludes))
+            for f in source_files:
+                func_calls = FuncCallParser(f).parse()
+                if func_calls:
+                    self.__sources_func_calls.update(func_calls)
         if banned:
             self.__banned.update(set(banned))
 
@@ -111,23 +119,70 @@ class Debugger(ValueBuilder):
     def __exit__(self, exc_type, exc_value, traceback):
         self.finish()
 
-    def __add_func_calls(self, source_files):
-        for f in source_files:
-            func_calls = FuncCallParser(f).parse()
-            if func_calls:
-                self.__sources_func_calls.update(func_calls)
+    @contextmanager
+    def watch(self, functions):
+        # TODO does the stats should only include relevant functions (or be available) stats in its context, then be cleared?/unavailable?
+        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
+            raise RuntimeError("Another program is already being run by gdb")
 
+        if not isinstance(functions, (list, tuple)):
+            functions = [functions]
+
+        cleanup = {}
+        for func in functions:
+            if func not in self.__watches:
+                cleanup[func] = True
+                self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, func)
+                self.__watches.add(func)
+            else:
+                cleanup[func] = False
+
+        try:
+            yield
+        finally:
+            for func, c in cleanup.items():
+                if c:
+                    self.__breakpoints[func].delete()
+                    self.__watches.remove(func)
+                    del self.__breakpoints[func]
+
+    @contextmanager
+    def ban(self, functions):
+        with self.watch(functions):
+            if not isinstance(functions, (list, tuple)):
+                functions = [functions]
+
+            cleanup = {}
+            for func in functions:
+                if func not in self.__banned:
+                    cleanup[func] = True
+                    self.__banned.add(func)
+                else:
+                    cleanup[func] = False
+
+            try:
+                yield
+            finally:
+                for func, c in cleanup.items():
+                    if c:
+                        self.__banned.remove(func)
+
+    @contextmanager
     def fail(self, function, retval):
-        self.__failures[function] = {"return": retval}
+        # TODO also accept function, retval list
+        with self.watch(function):
+            self.__failures[function] = {"return": retval}
 
-    def stop_fail(self, function):
-        del self.__failures[function]
+            try:
+                yield
+            finally:
+                del self.__failures[function]
 
     def start(self, timeout=0):
         if gdb.convenience_variable("__CCorrect_debugging") != None:
             raise RuntimeError("Another program is already being run by gdb")
 
-        self.stats = {}
+        self.stats.clear()
 
         # enable debuginfod if possible
         try:
@@ -143,7 +198,7 @@ class Debugger(ValueBuilder):
 
         # create breakpoints after start command to avoid the address sanitizer setup
         for func in self.__watches:
-            FuncBreakpoint(self.stats, self.__failures, func)
+            self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, func)
 
         if timeout > 0:
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
@@ -164,26 +219,28 @@ class Debugger(ValueBuilder):
 
         gdb.execute("file")  # discard any info on the loaded program and the symbol table
         gdb.execute("delete")  # delete all breakpoints
+        self.__breakpoints.clear()
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
-    def call(self, funcname, args=None):
+    def call(self, funcname, args=None, return_type=None):
         parsed_args = []
         if args is not None:
             sym, _ = gdb.lookup_symbol(funcname)
-            arg_types = [x.type for x in sym.type.fields()]
-            for i, type in enumerate(arg_types):
+            # TODO in some cases this can have no type attribute (x or sym???) ans raise error
+            # arg_types = [x.type for x in sym.type.fields()]
+            for i, arg in enumerate(args):
                 # TODO if arg is not a gdb.Value, parse it using the type from the function respective arg
                 #       (currently tested for basic values, this needs better testing)
                 arg = args[i]
-                if not isinstance(arg, gdb.Value):
-                    # print(arg, type, file=sys.stderr)
-                    arg = self.value(type, arg)
+                # if not isinstance(arg, gdb.Value):
+                #     type = arg_types[i]
+                #     arg = self.value(type, arg)
 
                 var_name = f"__CCorrect_arg{i}"
                 gdb.set_convenience_variable(var_name, arg)
                 parsed_args.append(f"${var_name}")
 
-        return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
+        return gdb.parse_and_eval(f"{f'({return_type})' if return_type is not None else ''}{funcname}({', '.join(parsed_args)})")
 
     def __wait_leak_sanitizer(self):
         # detach inferior process to allow the leak sanitizer to work
