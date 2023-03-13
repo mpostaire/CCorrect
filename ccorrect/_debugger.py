@@ -222,6 +222,8 @@ class Debugger(ValueBuilder):
 
         gdb.set_convenience_variable("__CCorrect_debugging", id(self))
 
+        return gdb.selected_inferior().pid
+
     def finish(self, free_allocated_values=True):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
             raise RuntimeError("Another program is already being run by gdb")

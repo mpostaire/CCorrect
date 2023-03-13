@@ -41,7 +41,10 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
 
     def _push_output(self):
-        gdb.parse_and_eval("(int) fflush(0)")
+        try:
+            gdb.parse_and_eval("(int) fflush(0)")
+        except gdb.error:
+            pass
 
         with open("stdout.txt", "r+") as f:
             _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
@@ -89,7 +92,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 "tags": []
             })
 
-            self.debugger.start(timeout=timeout)
+            pid = self.debugger.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
             except AssertionError as e:
@@ -105,7 +108,6 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 raise e
             finally:
                 self._push_output()
-                pid = gdb.selected_inferior().pid
                 self.debugger.finish()
                 self._push_asan_logs(pid)
 
