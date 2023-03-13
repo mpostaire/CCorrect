@@ -108,17 +108,21 @@ class PointerNode(ValueNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.value is not None and not isinstance(self.value, Ptr):
-            self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]
+            if isinstance(self.value, str):
+                for elem in self.value + chr(0):
+                    self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
+            else:
+                self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]
 
     def to_bytes(self):
         if isinstance(self.value, Ptr):
             address = self.value
         else:
-            child = self.children[0]
-            obj = child.to_bytes()
+            obj = bytearray()
+            for child in self.children:
+                obj += child.to_bytes()
 
-            # print(f"alloc size = {child.type.sizeof}")
-            pointer = gdb.parse_and_eval(f"(void *) malloc({child.type.sizeof})")
+            pointer = gdb.parse_and_eval(f"(void *) malloc({len(obj)})")
             inferior = gdb.selected_inferior()
             inferior.write_memory(pointer, obj)
 
@@ -154,7 +158,8 @@ class ValueBuilder:
         if level == 0:
             print("----------------")
 
-        print(f"{'  ' * level}type={node.type}, value={node.value}")
+        nullchar_repr = '\\x00'
+        print(f"{'  ' * level}type={node.type}, value={str(node.value).replace(chr(0), nullchar_repr)}")
         for child in node.children:
             self._print_tree(child, level=level + 1)
 

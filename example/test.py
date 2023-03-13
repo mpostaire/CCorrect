@@ -48,7 +48,5 @@ class TestValueBuilder(ccorrect.CCorrectTestCase):
             self.assertEqual(self.debugger.stats["free"].called, 2)
             self.assertEqual(pop_ret, 42)
 
-    def test_0(self):
-        pass
 
 ccorrect.run_tests(verbosity=2)

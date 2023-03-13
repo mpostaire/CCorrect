@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <string.h>
+
 typedef struct {
     char c;
     int i;
@@ -42,6 +44,15 @@ typedef struct {
     int next[4][2][3];
 } node_array3d;
 
+typedef struct {
+    int value;
+    char *name;
+} str_struct;
+
+size_t str_struct_name_len(str_struct *s) {
+    return strlen(s->name);
+}
+
 int main() {
     node a = {0};
     node_ext b = {0};
@@ -51,6 +62,7 @@ int main() {
     node_array3d f = {0};
     test_struct g = {0};
     test_struct_packed h = {0};
+    str_struct i = {0};
 
     return 0;
 }

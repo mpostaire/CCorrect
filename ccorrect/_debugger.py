@@ -12,6 +12,9 @@ class FuncStats:
         self.called = called
         self.args = args
         self.returns = returns
+    
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(name='{self.name}', called={self.called}, args={self.args}, returns={self.returns})"
 
 
 class FuncFinishBreakpoint(gdb.FinishBreakpoint):
@@ -26,18 +29,19 @@ class FuncFinishBreakpoint(gdb.FinishBreakpoint):
 
 
 class FuncBreakpoint(gdb.Breakpoint):
-    def __init__(self, stats, failures, banned, *args, **kwargs):
+    def __init__(self, stats, watches, failures, banned, allocated_addresses, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stats = stats
+        self.watches = watches
         self.failures = failures
         self.banned = banned
+        self.allocated_addresses = allocated_addresses
 
     def get_args(self):
         try:
             frame = gdb.newest_frame()
             block = frame.block()
-            args = {symbol.name: symbol.value(frame) for symbol in block if symbol.is_argument}
-            return args
+            return tuple(symbol.value(frame) for symbol in block if symbol.is_argument)
         except RuntimeError:
             return None
 
@@ -50,6 +54,18 @@ class FuncBreakpoint(gdb.Breakpoint):
             # this is not good: find another way to report a runtime call of a banned function.
             raise RuntimeError(f"'{self.location}' is a banned function")
 
+        args = self.get_args()
+
+        # TODO this should not remove from allocated address if free is in failures
+        if self.location == "free":
+            # if freeing an address of a value created from the debugger value builder methods,
+            # remove it from its list to prevent the auto cleanup to double free them
+            address = args[0]
+            if address in self.allocated_addresses:
+                self.allocated_addresses.remove(address)
+            if self.location not in self.watches:
+                return False
+
         fail = self.location in self.failures
         if not fail:
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
@@ -58,8 +74,6 @@ class FuncBreakpoint(gdb.Breakpoint):
             except ValueError:
                 # print(f"Cannot set finish breakpoint for '{self.location}'")
                 return False
-
-        args = self.get_args()
 
         if self.location not in self.stats:
             self.stats[self.location] = FuncStats(self.location, 1, [args], [])
@@ -71,7 +85,7 @@ class FuncBreakpoint(gdb.Breakpoint):
 
         if fail:
             failure = self.failures[self.location]
-
+            # TODO if function doen't return anything (void) don't do this (but it can still set errno)
             gdb.set_convenience_variable("__CCorrect_return_var", failure["return"])
             stats.returns.append(gdb.convenience_variable('__CCorrect_return_var'))
             gdb.execute(f"return $__CCorrect_return_var")
@@ -131,9 +145,10 @@ class Debugger(ValueBuilder):
         cleanup = {}
         for func in functions:
             if func not in self.__watches:
-                cleanup[func] = True
-                self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, func)
                 self.__watches.add(func)
+                if func != "free":
+                    cleanup[func] = True
+                    self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__watches, self.__failures, self.__banned, self.allocated_addresses, func)
             else:
                 cleanup[func] = False
 
@@ -169,7 +184,6 @@ class Debugger(ValueBuilder):
 
     @contextmanager
     def fail(self, function, retval):
-        # TODO also accept function, retval list
         with self.watch(function):
             self.__failures[function] = {"return": retval}
 
@@ -198,7 +212,9 @@ class Debugger(ValueBuilder):
 
         # create breakpoints after start command to avoid the address sanitizer setup
         for func in self.__watches:
-            self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, func)
+            if func != "free":
+                self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, self.allocated_addresses, func)
+        self.__breakpoints["free"] = FuncBreakpoint(self.stats, self.__watches, self.__failures, self.__banned, self.allocated_addresses, "free")
 
         if timeout > 0:
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
@@ -210,9 +226,12 @@ class Debugger(ValueBuilder):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
             raise RuntimeError("Another program is already being run by gdb")
 
-        if free_allocated_values:
-            self.free_allocated_values()
-        self.__wait_leak_sanitizer()
+        try:
+            if free_allocated_values:
+                self.free_allocated_values()
+            self.__wait_leak_sanitizer()
+        except gdb.error:
+            pass
 
         gdb.events.stop.disconnect(self.__stop_event_handler)
         gdb.events.exited.disconnect(self.__exited_event_handler)

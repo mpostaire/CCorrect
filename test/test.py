@@ -99,6 +99,10 @@ class TestValueBuilder(unittest.TestCase):
             else:
                 self.assertEqual(chr(c), string[i])
 
+        val = debugger.value_allocated("str_struct", {"value": 42, "name": "Hello there!"})
+        ret = debugger.call("str_struct_name_len", [val])
+        self.assertEqual(ret, 12)
+
     def test_multidimensional_arrays(self):
         array = [[1, 2], [3, 4], [5, 6], [7, 8]]
         val = debugger.value("int", array)
