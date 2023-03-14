@@ -58,9 +58,7 @@ class FuncBreakpoint(gdb.Breakpoint):
 
         # TODO this should not remove from allocated address if free is in failures
         if self.location == "free":
-            # if freeing an address of a value created from the debugger value builder methods,
-            # remove it from its list to prevent the auto cleanup to double free them
-            address = args[0]
+            address = int(args[0])
             if address in self.allocated_addresses:
                 self.allocated_addresses.remove(address)
             if self.location not in self.watches:

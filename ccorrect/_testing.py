@@ -104,7 +104,8 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 # TODO handle error
                 _test_results[pb]["tests"][-1]["success"] = False
                 _test_results[pb]["success"] = False
-                self.push_info_msg(str(e))
+                # If we push the exception as a message, it pollutes the report for the student
+                # self.push_info_msg(str(e))
                 raise e
             finally:
                 self._push_output()

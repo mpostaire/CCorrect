@@ -127,14 +127,14 @@ class PointerNode(ValueNode):
             inferior.write_memory(pointer, obj)
 
             address = int(pointer)
-            self.value_builder.allocated_addresses.append(address)
+            self.value_builder.allocated_addresses.add(address)
 
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
 
 
 class ValueBuilder:
     def __init__(self):
-        self.allocated_addresses = []
+        self.allocated_addresses = set()
 
     def _parse_value(self, type, value, parent=None):
         if type.code == gdb.TYPE_CODE_PTR:
@@ -190,7 +190,7 @@ class ValueBuilder:
         inferior = gdb.selected_inferior()
         inferior.write_memory(pointer, obj)
 
-        self.allocated_addresses.append(int(pointer))
+        self.allocated_addresses.add(int(pointer))
 
         if root_type.code == gdb.TYPE_CODE_ARRAY:
             return pointer.cast(root_type.target().pointer())
@@ -221,6 +221,8 @@ class ValueBuilder:
         return self.value(type, Ptr(value))
 
     def free_allocated_values(self):
-        for address in self.allocated_addresses:
+        # copy self.allocated_addresses to not confuse the iterator as self.allocated_addresses is updated as addresses are freed
+        allocated_addresses = self.allocated_addresses.copy()
+        for address in allocated_addresses:
             gdb.parse_and_eval(f"free({address})")
-        self.allocated_addresses = []
+        allocated_addresses.clear()
