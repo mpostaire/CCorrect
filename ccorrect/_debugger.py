@@ -98,7 +98,7 @@ class FuncBreakpoint(gdb.Breakpoint):
 
 
 class Debugger(ValueBuilder):
-    def __init__(self, program, source_files=None, banned=None):
+    def __init__(self, program, source_files=None, banned=None, asan_detect_leaks=False):
         super().__init__()
         self.program = program
         self.stats = {}
@@ -107,6 +107,8 @@ class Debugger(ValueBuilder):
         self.__sources_func_calls = set()
         self.__watches = set()
         self.__banned = set()
+
+        gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={'1' if asan_detect_leaks else '0'}")
 
         if source_files:
             for f in source_files:
