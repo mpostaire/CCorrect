@@ -5,7 +5,7 @@ from yaml import safe_load as yaml_load
 
 
 def run(test_script, silent_gdb=True):
-    cmd = f'gdb -batch{"-silent" if silent_gdb else ""} -ex "python __name__ = \'gdb\'" -x "{test_script}"'
+    cmd = _get_cmd(test_script, silent_gdb)
     p = subprocess.run(shlex.split(cmd))
     if p.returncode != 0:
         return None
@@ -15,3 +15,7 @@ def run(test_script, silent_gdb=True):
             return yaml_load(f)
     except FileNotFoundError:
         return None
+
+
+def _get_cmd(test_script, silent_gdb=True):
+    return f'gdb -batch{"-silent" if silent_gdb else ""} -ex "python __name__ = \'gdb\'" -x "{test_script}"'

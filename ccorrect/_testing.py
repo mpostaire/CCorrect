@@ -31,7 +31,7 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
 
     def __init__(self, methodName: str = "runTest") -> None:
         if not isinstance(self.debugger, Debugger):
-            raise ValueError("Invalid 'debugger' class attribute value") 
+            raise ValueError("Invalid 'debugger' class attribute value")
         super().__init__(methodName)
 
     def push_info_msg(self, msg):
@@ -73,11 +73,11 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             if not isinstance(self, CCorrectTestCase):
-                raise TypeError(f"The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
+                raise TypeError("The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
 
             pb = func.__name__ if problem is None else problem
             self._CCorrectTestCase__current_problem = pb
-            if not pb in _test_results:
+            if pb not in _test_results:
                 _test_results[pb] = {
                     "success": True,
                     "score": 0,

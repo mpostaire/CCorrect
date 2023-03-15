@@ -152,8 +152,8 @@ class TestValueBuilder(unittest.TestCase):
         gdb.set_convenience_variable("val", val)
         gdb.set_convenience_variable("val_packed", val_packed)
 
-        self.assertGreater(gdb.parse_and_eval(f"sizeof($val)"), 5)
-        self.assertEqual(gdb.parse_and_eval(f"sizeof($val_packed)"), 5)
+        self.assertGreater(gdb.parse_and_eval("sizeof($val)"), 5)
+        self.assertEqual(gdb.parse_and_eval("sizeof($val_packed)"), 5)
 
     def test_nested_struct(self):
         node_struct = {"value": 4, "next": {"value": 5, "next": None}}
@@ -255,7 +255,7 @@ class TestValueBuilder(unittest.TestCase):
         self.assertEqual(str(ptr.dereference().type), "node *")
         self.assertEqual(ptr.dereference()["value"], 4)
 
-        # cannot get pointer of gdb.Value that isn't allocated on the inferior's heap 
+        # cannot get pointer of gdb.Value that isn't allocated on the inferior's heap
         with self.assertRaises(AssertionError):
             val = debugger.value("node", {"value": 4, "next": None})
             ptr = debugger.pointer(val)

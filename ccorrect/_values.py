@@ -73,8 +73,8 @@ class ArrayNode(ValueNode):
             lengths.append(len(value) - 1)
             value = value[0]
 
-        for l in reversed(lengths):
-            self.type = self.type.array(l)
+        for length in reversed(lengths):
+            self.type = self.type.array(length)
 
 
 class StructNode(ValueNode):

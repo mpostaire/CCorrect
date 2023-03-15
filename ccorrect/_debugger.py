@@ -12,7 +12,7 @@ class FuncStats:
         self.called = called
         self.args = args
         self.returns = returns
-    
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name='{self.name}', called={self.called}, args={self.args}, returns={self.returns})"
 
@@ -86,13 +86,13 @@ class FuncBreakpoint(gdb.Breakpoint):
             # TODO if function doen't return anything (void) don't do this (but it can still set errno)
             gdb.set_convenience_variable("__CCorrect_return_var", failure["return"])
             stats.returns.append(gdb.convenience_variable('__CCorrect_return_var'))
-            gdb.execute(f"return $__CCorrect_return_var")
+            gdb.execute("return $__CCorrect_return_var")
             # TODO handle case where errno might not be in current context
             # TODO make unit tests for failures and errno
             if "errno" in failure and failure["errno"]:
                 print(f"ERRNO SET TO {failure['errno']}")
                 gdb.set_convenience_variable("__CCorrect_errno", failure["errno"])
-                gdb.execute(f"errno = $__CCorrect_errno")
+                gdb.execute("errno = $__CCorrect_errno")
 
         return False
 
@@ -193,7 +193,7 @@ class Debugger(ValueBuilder):
                 del self.__failures[function]
 
     def start(self, timeout=0):
-        if gdb.convenience_variable("__CCorrect_debugging") != None:
+        if gdb.convenience_variable("__CCorrect_debugging") is not None:
             raise RuntimeError("Another program is already being run by gdb")
 
         self.stats.clear()
@@ -202,7 +202,7 @@ class Debugger(ValueBuilder):
         try:
             gdb.execute("set debuginfod enabled on")
         except gdb.error:
-            print(f"debuginfod cannot be enabled", file=sys.stderr)
+            print("debuginfod cannot be enabled", file=sys.stderr)
 
         gdb.events.stop.connect(self.__stop_event_handler)
         gdb.events.exited.connect(self.__exited_event_handler)
