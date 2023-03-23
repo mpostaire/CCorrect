@@ -29,31 +29,23 @@ class FuncFinishBreakpoint(gdb.FinishBreakpoint):
 
 
 class FuncBreakpoint(gdb.Breakpoint):
-    def __init__(self, stats, watches, failures, banned, allocated_addresses, *args, **kwargs):
+    def __init__(self, stats, allocated_addresses, failure, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.stats = stats
-        self.watches = watches
-        self.failures = failures
-        self.banned = banned
         self.allocated_addresses = allocated_addresses
+        self.failure = failure
+        self.watch = True
 
     def get_args(self):
         try:
             frame = gdb.newest_frame()
             block = frame.block()
+            # TODO maybe it's necessary to call fetch_lazy() on each arg
             return tuple(symbol.value(frame) for symbol in block if symbol.is_argument)
         except RuntimeError:
             return None
 
     def stop(self):
-        # allow force fail (don't execute function and change its return value and/or errno)
-
-        if self.location in self.banned:
-            # TODO raising error inside a gdb function call produces this error:
-            # gdb.error: The program being debugged stopped while in a function called from GDB.
-            # this is not good: find another way to report a runtime call of a banned function.
-            raise RuntimeError(f"'{self.location}' is a banned function")
-
         args = self.get_args()
 
         # TODO this should not remove from allocated address if free is in failures
@@ -61,69 +53,61 @@ class FuncBreakpoint(gdb.Breakpoint):
             address = int(args[0])
             if address in self.allocated_addresses:
                 self.allocated_addresses.remove(address)
-            if self.location not in self.watches:
-                return False
 
-        fail = self.location in self.failures
-        if not fail:
+        if self.watch:
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
-            try:
-                FuncFinishBreakpoint(self.stats, self.location)
-            except ValueError:
-                # print(f"Cannot set finish breakpoint for '{self.location}'")
-                return False
+            if self.failure is None:
+                try:
+                    FuncFinishBreakpoint(self.stats, self.location)
+                except ValueError:
+                    # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
+                    pass
 
-        if self.location not in self.stats:
-            self.stats[self.location] = FuncStats(self.location, 1, [args], [])
-        else:
-            self.stats[self.location].called += 1
-            self.stats[self.location].args.append(args)
+            if self.location not in self.stats:
+                self.stats[self.location] = FuncStats(self.location, 1, [args], [])
+            else:
+                self.stats[self.location].called += 1
+                self.stats[self.location].args.append(args)
 
-        stats = self.stats[self.location]
-
-        if fail:
-            failure = self.failures[self.location]
-            # TODO if function doen't return anything (void) don't do this (but it can still set errno)
-            gdb.set_convenience_variable("__CCorrect_return_var", failure["return"])
-            stats.returns.append(gdb.convenience_variable('__CCorrect_return_var'))
-            gdb.execute("return $__CCorrect_return_var")
+        if self.failure is not None:
             # TODO handle case where errno might not be in current context
             # TODO make unit tests for failures and errno
-            if "errno" in failure and failure["errno"]:
-                print(f"ERRNO SET TO {failure['errno']}")
-                gdb.set_convenience_variable("__CCorrect_errno", failure["errno"])
+            if "errno" in self.failure and self.failure["errno"]:
+                print(f"ERRNO SET TO {self.failure['errno']}")
+                gdb.set_convenience_variable("__CCorrect_errno", self.failure["errno"])
                 gdb.execute("errno = $__CCorrect_errno")
+
+            # TODO if function doesn't return anything (void) don't do this (but it can still set errno)
+            gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
+            if self.watch:
+                self.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
+            gdb.execute("return $__CCorrect_return_var")
 
         return False
 
 
 class Debugger(ValueBuilder):
-    def __init__(self, program, source_files=None, banned=None, asan_detect_leaks=False):
+    def __init__(self, program, source_files=None, banned_functions=None, save_output=True, asan_detect_leaks=False):
         super().__init__()
-        self.program = program
         self.stats = {}
-        self.__breakpoints = {}
-        self.__failures = {}
+        self._program = program
+        self._asan_detect_leaks = asan_detect_leaks
+        self._save_output = save_output
         self.__sources_func_calls = set()
-        self.__watches = set()
-        self.__banned = set()
-
-        gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={'1' if asan_detect_leaks else '0'}")
+        self.__watch_breakpoints = {}
+        self.__fail_breakpoints = {}
 
         if source_files:
             for f in source_files:
                 func_calls = FuncCallParser(f).parse()
                 if func_calls:
                     self.__sources_func_calls.update(func_calls)
-        if banned:
-            self.__banned.update(set(banned))
 
         for f in self.__sources_func_calls:
-            self.__watches.add(f)
-
-        for f in self.__sources_func_calls:
-            if f in self.__banned:
+            if f in banned_functions:
                 print(f"'{f}' is a banned function", file=sys.stderr)
+                # TODO raise exception here?
+                # raise RuntimeError(f"'{self.location}' is a banned function")
                 gdb.execute("quit 1")
 
     def __enter__(self):
@@ -131,66 +115,86 @@ class Debugger(ValueBuilder):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        # TODO maybe here is where I can catch internal exceptions (like from banned functions)???
+        #       ----> test but I don't think so...
         self.finish()
 
     @contextmanager
     def watch(self, functions):
-        # TODO does the stats should only include relevant functions (or be available) stats in its context, then be cleared?/unavailable?
+        """
+        This cannot watch function calls that are directly called by the debugger/gdb
+        """
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
             raise RuntimeError("Another program is already being run by gdb")
 
         if not isinstance(functions, (list, tuple)):
             functions = [functions]
 
-        cleanup = {}
+        # unwatch_free = False
+        cleanup_bp = []
+        unwatch = []
         for func in functions:
-            if func not in self.__watches:
-                self.__watches.add(func)
-                if func != "free":
-                    cleanup[func] = True
-                    self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__watches, self.__failures, self.__banned, self.allocated_addresses, func)
+            if func in self.__watch_breakpoints:
+                # don't add a breakpoint if one was previously set at this location
+                continue
+            elif func in self.__fail_breakpoints:
+                self.__watch_breakpoints[func] = self.__fail_breakpoints[func]
+                self.__watch_breakpoints[func].watch = True
+                unwatch.append(self.__watch_breakpoints[func])
             else:
-                cleanup[func] = False
+                self.__watch_breakpoints[func] = FuncBreakpoint(self.stats, self.allocated_addresses, None, func)
+                cleanup_bp.append(self.__watch_breakpoints[func])
 
         try:
             yield
         finally:
-            for func, c in cleanup.items():
-                if c:
-                    self.__breakpoints[func].delete()
-                    self.__watches.remove(func)
-                    del self.__breakpoints[func]
+            # if unwatch_free:
+            #     self.__free_breakpoint.watch = False
+            for bp in cleanup_bp:
+                del self.__watch_breakpoints[bp.location]
+                bp.delete()
+            for bp in unwatch:
+                del self.__watch_breakpoints[bp.location]
+                bp.watch = False
 
     @contextmanager
-    def ban(self, functions):
-        with self.watch(functions):
-            if not isinstance(functions, (list, tuple)):
-                functions = [functions]
+    def fail(self, function, retval, when=None):
+        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
+            raise RuntimeError("Another program is already being run by gdb")
 
-            cleanup = {}
-            for func in functions:
-                if func not in self.__banned:
-                    cleanup[func] = True
-                    self.__banned.add(func)
-                else:
-                    cleanup[func] = False
+        # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
+        if when is not None:
+            when = set(when)
 
-            try:
-                yield
-            finally:
-                for func, c in cleanup.items():
-                    if c:
-                        self.__banned.remove(func)
+        old_failure = None
+        cleanup_breakpoint = False
+        cleanup_failure = False
+        failure = {"return": retval}
+        if function in self.__fail_breakpoints:
+            # don't add a breakpoint if one was previously set at this location
+            old_failure = self.__fail_breakpoints[function].failure
+            self.__fail_breakpoints[function].failure = failure
+        elif function in self.__watch_breakpoints:
+            self.__fail_breakpoints[function] = self.__watch_breakpoints[function]
+            old_failure = self.__fail_breakpoints[function].failure
+            self.__fail_breakpoints[function].failure = failure
+            cleanup_failure = True
+        else:
+            cleanup_failure = True
+            cleanup_breakpoint = True
+            self.__fail_breakpoints[function] = FuncBreakpoint(self.stats, self.allocated_addresses, failure, function)
+            self.__fail_breakpoints[function].watch = False
 
-    @contextmanager
-    def fail(self, function, retval):
-        with self.watch(function):
-            self.__failures[function] = {"return": retval}
-
-            try:
-                yield
-            finally:
-                del self.__failures[function]
+        try:
+            yield
+        finally:
+            if old_failure is not None:
+                self.__fail_breakpoints[function].failure = old_failure
+            if cleanup_breakpoint:
+                self.__fail_breakpoints[function].delete()
+            if cleanup_failure:
+                self.__fail_breakpoints[function].failure = None
+                del self.__fail_breakpoints[function]
 
     def start(self, timeout=0):
         if gdb.convenience_variable("__CCorrect_debugging") is not None:
@@ -207,14 +211,13 @@ class Debugger(ValueBuilder):
         gdb.events.stop.connect(self.__stop_event_handler)
         gdb.events.exited.connect(self.__exited_event_handler)
 
-        gdb.execute(f"file {self.program}")  # load program
-        gdb.execute("start 1> stdout.txt 2> stderr.txt")
+        gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={1 if self._asan_detect_leaks else 0}")
+        gdb.execute(f"file {self._program}")  # load program
+        gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
-        # create breakpoints after start command to avoid the address sanitizer setup
-        for func in self.__watches:
-            if func != "free":
-                self.__breakpoints[func] = FuncBreakpoint(self.stats, self.__failures, self.__banned, self.allocated_addresses, func)
-        self.__breakpoints["free"] = FuncBreakpoint(self.stats, self.__watches, self.__failures, self.__banned, self.allocated_addresses, "free")
+        # create breakpoint after start command to avoid the address sanitizer setup
+        self.__free_breakpoint = FuncBreakpoint(self.stats, self.allocated_addresses, None, "free")
+        self.__free_breakpoint.watch = False
 
         if timeout > 0:
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
@@ -240,22 +243,22 @@ class Debugger(ValueBuilder):
 
         gdb.execute("file")  # discard any info on the loaded program and the symbol table
         gdb.execute("delete")  # delete all breakpoints
-        self.__breakpoints.clear()
+        self.__watch_breakpoints.clear()
+        self.__fail_breakpoints.clear()
+        self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
     def call(self, funcname, args=None, return_type=None):
+        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
+            raise RuntimeError("Another program is already being run by gdb")
+
         parsed_args = []
         if args is not None:
-            sym, _ = gdb.lookup_symbol(funcname)
-            # TODO in some cases this can have no type attribute (x or sym???) ans raise error
-            # arg_types = [x.type for x in sym.type.fields()]
-            for i, arg in enumerate(args):
-                # TODO if arg is not a gdb.Value, parse it using the type from the function respective arg
-                #       (currently tested for basic values, this needs better testing)
-                arg = args[i]
-                # if not isinstance(arg, gdb.Value):
-                #     type = arg_types[i]
-                #     arg = self.value(type, arg)
+            func = gdb.parse_and_eval(funcname)
+            arg_types = [field.type for field in func.type.fields()]
+            for i, (arg, type) in enumerate(zip(args, arg_types)):
+                if not isinstance(arg, gdb.Value):
+                    arg = self.value(type, arg)
 
                 var_name = f"__CCorrect_arg{i}"
                 gdb.set_convenience_variable(var_name, arg)
@@ -282,6 +285,9 @@ class Debugger(ValueBuilder):
             gdb.execute("set scheduler-locking off")
             return
 
+        # raise Exception(f"GOT EVENT {event.stop_signal}")
+        # TODO find a way to make exception propagate from python while gdb is running the inferior
+        #       -----> this cannot work for everything but instead of raising an error, just quit gdb wth a special return code
         print(f"GOT EVENT {event.stop_signal}", file=sys.stderr)
 
     def __exited_event_handler(self, event):

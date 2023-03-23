@@ -19,11 +19,10 @@ A python module to write, grade and provide feedback for exercices in C using gd
 - [ ] Threads support
 - [x] Memleak detection (libasan)
 - [x] Inginious integration
-- [ ] gettext support
 - [ ] CI
     - [x] unit tests value builder
-    - [ ] unit tests timeout
-    - [ ] unit tests function call, watch, fail and ban 
+    - [x] unit tests timeout
+    - [x] unit tests function call, watch and fail
     - [ ] unit tests on different exercises (test on an expected results.yml)
 
 <!-- 

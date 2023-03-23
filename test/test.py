@@ -8,8 +8,13 @@ import gdb
 
 
 class TestValueBuilder(unittest.TestCase):
+    def setUp(self):
+        debugger.start()
+
     def tearDown(self):
         debugger.free_allocated_values()
+        debugger.stats.clear()
+        debugger.finish()
 
     def test_basic_types(self):
         val = debugger.value("char", "c")
@@ -261,5 +266,151 @@ class TestValueBuilder(unittest.TestCase):
             ptr = debugger.pointer(val)
 
 
-with ccorrect.Debugger("main") as debugger:
-    unittest.main()
+class TestFunctionCall(unittest.TestCase):
+    def setUp(self):
+        debugger.start()
+
+    def tearDown(self):
+        debugger.free_allocated_values()
+        debugger.stats.clear()
+        debugger.finish()
+
+    def test_basic_call(self):
+        # TODO test return value as argument
+        char = debugger.value("char", "c")
+        count = debugger.value("int", 10)
+        ret = debugger.call("repeat_char", [char, count])
+        self.assertEqual(ret.string(), "c" * 10)
+
+        value = debugger.value_allocated("str_struct", {"value": 42, "name": "Hello there"})
+        ret = debugger.call("str_struct_name_len", [value])
+        self.assertEqual(ret, 11)
+
+    def test_call_generate_arg_from_template(self):
+        ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret.string(), "c" * 10)
+
+        ret = debugger.call("str_struct_name_len", [{"value": 42, "name": "Hello there"}])
+        self.assertEqual(ret, 11)
+
+    def test_watch(self):
+        self.assertEqual(len(debugger.stats.keys()), 0)
+        debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(len(debugger.stats.keys()), 0)
+
+        with debugger.watch("malloc"):
+            debugger.call("repeat_char", ["c", 5])
+        self.assertEqual(len(debugger.stats.keys()), 1)
+        self.assertEqual(debugger.stats["malloc"].called, 1)
+        self.assertEqual(len(debugger.stats["malloc"].args), 1)
+        self.assertEqual(len(debugger.stats["malloc"].args[0]), 1)
+        self.assertEqual(debugger.stats["malloc"].args[0][0], 6)
+        self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+        self.assertGreater(debugger.stats["malloc"].returns[0], 0)
+
+        debugger.call("repeat_char", ["c", 2])
+        self.assertEqual(len(debugger.stats.keys()), 1)
+
+        debugger.stats.clear()
+        with debugger.watch("malloc"), debugger.watch("malloc"):
+            debugger.call("repeat_char", ["c", 5])
+        self.assertEqual(debugger.stats["malloc"].called, 1)
+
+    def test_fail(self):
+        ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret.string(), "c" * 10)
+
+        # TODO fail retval and errno from template
+
+        NULL = debugger.pointer("void", 0)
+        with debugger.fail("malloc", NULL):
+            ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret, 0)
+        # this should not record stats on malloc as it was not explicitely told to
+        self.assertEqual(len(debugger.stats.keys()), 0)
+
+        # test with multiple fail (the last fail call in the scope should be the one that works):
+        with debugger.fail("strlen", debugger.value("int", 0)):
+            ret = debugger.call("str_struct_name_len", [{"value": 42, "name": "Hello there"}])
+            self.assertEqual(ret, 0)
+            self.assertEqual(len(debugger.stats.keys()), 0)
+
+            with debugger.fail("strlen", debugger.value("int", 1)):
+                ret = debugger.call("str_struct_name_len", [{"value": 42, "name": "Hello there"}])
+                self.assertEqual(ret, 1)
+                self.assertEqual(len(debugger.stats.keys()), 0)
+
+            ret = debugger.call("str_struct_name_len", [{"value": 42, "name": "Hello there"}])
+            self.assertEqual(ret, 0)
+            self.assertEqual(len(debugger.stats.keys()), 0)
+
+    def test_watch_fail(self):
+        with debugger.watch("malloc"):
+            with debugger.fail("malloc", debugger.pointer("void", 0)):
+                ret = debugger.call("repeat_char", ["c", 10])
+                self.assertEqual(ret, 0)
+                self.assertEqual(debugger.stats["malloc"].called, 1)
+                self.assertEqual(len(debugger.stats["malloc"].args), 1)
+                self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+
+            ret = debugger.call("repeat_char", ["c", 10])
+            self.assertEqual(ret.string(), "c" * 10)
+            self.assertEqual(debugger.stats["malloc"].called, 2)
+            self.assertEqual(len(debugger.stats["malloc"].args), 2)
+            self.assertEqual(len(debugger.stats["malloc"].returns), 2)
+
+        ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret.string(), "c" * 10)
+        self.assertEqual(debugger.stats["malloc"].called, 2)
+        self.assertEqual(len(debugger.stats["malloc"].args), 2)
+        self.assertEqual(len(debugger.stats["malloc"].returns), 2)
+
+    def test_fail_watch(self):
+        with debugger.fail("malloc", debugger.pointer("void", 0)):
+            with debugger.watch("malloc"):
+                ret = debugger.call("repeat_char", ["c", 10])
+                self.assertEqual(ret, 0)
+                self.assertEqual(debugger.stats["malloc"].called, 1)
+                self.assertEqual(len(debugger.stats["malloc"].args), 1)
+                self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+
+            ret = debugger.call("repeat_char", ["c", 10])
+            self.assertEqual(ret, 0)
+            self.assertEqual(debugger.stats["malloc"].called, 1)
+            self.assertEqual(len(debugger.stats["malloc"].args), 1)
+            self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+
+        ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret.string(), "c" * 10)
+        self.assertEqual(debugger.stats["malloc"].called, 1)
+        self.assertEqual(len(debugger.stats["malloc"].args), 1)
+        self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+
+    # def test_watch_free(self):
+    #     # TODO
+    #     pass
+
+    # def test_fail_free(self):
+    #     # TODO
+    #     pass
+
+
+class TestTimeout(unittest.TestCase):
+    def setUp(self):
+        debugger.start(timeout=1)
+
+    def tearDown(self):
+        debugger.free_allocated_values()
+        debugger.stats.clear()
+        debugger.finish()
+
+    def test_timeout(self):
+        ret = debugger.call("repeat_char", ["c", 10])
+        self.assertEqual(ret.string(), "c" * 10)
+
+        with self.assertRaises(gdb.error):
+            debugger.call("loop")
+
+
+debugger = ccorrect.Debugger("main", save_output=False)
+unittest.main(verbosity=2)

@@ -53,6 +53,22 @@ size_t str_struct_name_len(str_struct *s) {
     return strlen(s->name);
 }
 
+char *repeat_char(char c, int count) {
+    char *str = malloc(count + 1);
+    if (!str)
+        return NULL;
+
+    str[count] = '\0';
+    while (count--)
+        str[count] = c;
+
+    return str;
+}
+
+void loop(void) {
+    while (1);
+}
+
 int main() {
     node a = {0};
     node_ext b = {0};
