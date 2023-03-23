@@ -386,13 +386,20 @@ class TestFunctionCall(unittest.TestCase):
         self.assertEqual(len(debugger.stats["malloc"].args), 1)
         self.assertEqual(len(debugger.stats["malloc"].returns), 1)
 
-    # def test_watch_free(self):
-    #     # TODO
-    #     pass
+    def test_watch_free(self):
+        debugger.call("test_free")
+        self.assertEqual(len(debugger.stats.keys()), 0)
 
-    # def test_fail_free(self):
-    #     # TODO
-    #     pass
+        with debugger.watch("free"):
+            debugger.call("test_free")
+            self.assertEqual(debugger.stats["free"].called, 1)
+            self.assertEqual(len(debugger.stats["free"].args), 1)
+            self.assertEqual(len(debugger.stats["free"].args[0]), 1)
+            self.assertGreater(debugger.stats["free"].args[0][0], 0)
+
+        debugger.stats.clear()
+        debugger.call("test_free")
+        self.assertEqual(len(debugger.stats.keys()), 0)
 
 
 class TestTimeout(unittest.TestCase):

@@ -69,6 +69,11 @@ void loop(void) {
     while (1);
 }
 
+void test_free(void) {
+    char *tmp = malloc(8);
+    free(tmp);
+}
+
 int main() {
     node a = {0};
     node_ext b = {0};

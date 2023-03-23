@@ -29,12 +29,11 @@ class FuncFinishBreakpoint(gdb.FinishBreakpoint):
 
 
 class FuncBreakpoint(gdb.Breakpoint):
-    def __init__(self, stats, allocated_addresses, failure, *args, **kwargs):
+    def __init__(self, debugger, watch, failure, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.stats = stats
-        self.allocated_addresses = allocated_addresses
+        self.debugger = debugger
         self.failure = failure
-        self.watch = True
+        self.watch = watch
 
     def get_args(self):
         try:
@@ -48,26 +47,25 @@ class FuncBreakpoint(gdb.Breakpoint):
     def stop(self):
         args = self.get_args()
 
-        # TODO this should not remove from allocated address if free is in failures
         if self.location == "free":
             address = int(args[0])
-            if address in self.allocated_addresses:
-                self.allocated_addresses.remove(address)
+            if address in self.debugger.allocated_addresses:
+                self.debugger.allocated_addresses.remove(address)
 
         if self.watch:
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
             if self.failure is None:
                 try:
-                    FuncFinishBreakpoint(self.stats, self.location)
+                    FuncFinishBreakpoint(self.debugger.stats, self.location)
                 except ValueError:
                     # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
                     pass
 
-            if self.location not in self.stats:
-                self.stats[self.location] = FuncStats(self.location, 1, [args], [])
+            if self.location not in self.debugger.stats:
+                self.debugger.stats[self.location] = FuncStats(self.location, 1, [args], [])
             else:
-                self.stats[self.location].called += 1
-                self.stats[self.location].args.append(args)
+                self.debugger.stats[self.location].called += 1
+                self.debugger.stats[self.location].args.append(args)
 
         if self.failure is not None:
             # TODO handle case where errno might not be in current context
@@ -80,7 +78,7 @@ class FuncBreakpoint(gdb.Breakpoint):
             # TODO if function doesn't return anything (void) don't do this (but it can still set errno)
             gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
             if self.watch:
-                self.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
+                self.debugger.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
             gdb.execute("return $__CCorrect_return_var")
 
         return False
@@ -94,8 +92,7 @@ class Debugger(ValueBuilder):
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
         self.__sources_func_calls = set()
-        self.__watch_breakpoints = {}
-        self.__fail_breakpoints = {}
+        self.__breakpoints = {}
 
         if source_files:
             for f in source_files:
@@ -130,32 +127,28 @@ class Debugger(ValueBuilder):
         if not isinstance(functions, (list, tuple)):
             functions = [functions]
 
-        # unwatch_free = False
-        cleanup_bp = []
-        unwatch = []
+        cleanup_breakpoints = []
+        cleanup_watch = []
         for func in functions:
-            if func in self.__watch_breakpoints:
-                # don't add a breakpoint if one was previously set at this location
-                continue
-            elif func in self.__fail_breakpoints:
-                self.__watch_breakpoints[func] = self.__fail_breakpoints[func]
-                self.__watch_breakpoints[func].watch = True
-                unwatch.append(self.__watch_breakpoints[func])
-            else:
-                self.__watch_breakpoints[func] = FuncBreakpoint(self.stats, self.allocated_addresses, None, func)
-                cleanup_bp.append(self.__watch_breakpoints[func])
+            bp = self.__get_breakpoint(func)
+            if bp is None:
+                # create a new watch breakpoint if there wasn't one at this location
+                bp = FuncBreakpoint(self, True, None, func)
+                self.__breakpoints[func] = bp
+                cleanup_breakpoints.append(bp)
+            elif not bp.watch:
+                # start watching if there is already a breakpoint at this location but it isn't watching
+                bp.watch = True
+                cleanup_watch.append(bp)
 
         try:
             yield
         finally:
-            # if unwatch_free:
-            #     self.__free_breakpoint.watch = False
-            for bp in cleanup_bp:
-                del self.__watch_breakpoints[bp.location]
-                bp.delete()
-            for bp in unwatch:
-                del self.__watch_breakpoints[bp.location]
+            for bp in cleanup_watch:
                 bp.watch = False
+            for bp in cleanup_breakpoints:
+                del self.__breakpoints[bp.location]
+                bp.delete()
 
     @contextmanager
     def fail(self, function, retval, when=None):
@@ -168,33 +161,28 @@ class Debugger(ValueBuilder):
 
         old_failure = None
         cleanup_breakpoint = False
-        cleanup_failure = False
         failure = {"return": retval}
-        if function in self.__fail_breakpoints:
-            # don't add a breakpoint if one was previously set at this location
-            old_failure = self.__fail_breakpoints[function].failure
-            self.__fail_breakpoints[function].failure = failure
-        elif function in self.__watch_breakpoints:
-            self.__fail_breakpoints[function] = self.__watch_breakpoints[function]
-            old_failure = self.__fail_breakpoints[function].failure
-            self.__fail_breakpoints[function].failure = failure
-            cleanup_failure = True
-        else:
-            cleanup_failure = True
+        bp = self.__get_breakpoint(function)
+        if bp is None:
+            # create a new fail breakpoint if there wasn't one at this location
+            bp = FuncBreakpoint(self, False, failure, function)
+            self.__breakpoints[function] = bp
             cleanup_breakpoint = True
-            self.__fail_breakpoints[function] = FuncBreakpoint(self.stats, self.allocated_addresses, failure, function)
-            self.__fail_breakpoints[function].watch = False
+        elif bp.failure is None:
+            # start failing if there is already a breakpoint at this location but it isn't a fail
+            bp.failure = failure
+        else:
+            # there was already a fail breakpoint at this location so we set it a new failure
+            old_failure = bp.failure
+            bp.failure = failure
 
         try:
             yield
         finally:
-            if old_failure is not None:
-                self.__fail_breakpoints[function].failure = old_failure
+            bp.failure = old_failure  # put back old failure in the breakpoint
             if cleanup_breakpoint:
-                self.__fail_breakpoints[function].delete()
-            if cleanup_failure:
-                self.__fail_breakpoints[function].failure = None
-                del self.__fail_breakpoints[function]
+                del self.__breakpoints[bp.location]
+                bp.delete()
 
     def start(self, timeout=0):
         if gdb.convenience_variable("__CCorrect_debugging") is not None:
@@ -216,7 +204,7 @@ class Debugger(ValueBuilder):
         gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
         # create breakpoint after start command to avoid the address sanitizer setup
-        self.__free_breakpoint = FuncBreakpoint(self.stats, self.allocated_addresses, None, "free")
+        self.__free_breakpoint = FuncBreakpoint(self, False, None, "free")
         self.__free_breakpoint.watch = False
 
         if timeout > 0:
@@ -243,8 +231,7 @@ class Debugger(ValueBuilder):
 
         gdb.execute("file")  # discard any info on the loaded program and the symbol table
         gdb.execute("delete")  # delete all breakpoints
-        self.__watch_breakpoints.clear()
-        self.__fail_breakpoints.clear()
+        self.__breakpoints.clear()
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
@@ -265,6 +252,13 @@ class Debugger(ValueBuilder):
                 parsed_args.append(f"${var_name}")
 
         return gdb.parse_and_eval(f"{f'({return_type})' if return_type is not None else ''}{funcname}({', '.join(parsed_args)})")
+
+    def __get_breakpoint(self, function):
+        if function == "free":
+            return self.__free_breakpoint
+        if function in self.__breakpoints:
+            return self.__breakpoints[function]
+        return None
 
     def __wait_leak_sanitizer(self):
         # detach inferior process to allow the leak sanitizer to work
