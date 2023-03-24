@@ -35,10 +35,12 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         super().__init__(methodName)
 
     def push_info_msg(self, msg):
-        _test_results[self.__current_problem]["tests"][-1]["messages"].append(msg)
+        if msg != "":
+            _test_results[self.__current_problem]["tests"][-1]["messages"].append(msg)
 
     def push_tag(self, tag):
-        _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
+        if tag != "":
+            _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
 
     def _push_output(self):
         try:
@@ -98,7 +100,8 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             except AssertionError as e:
                 _test_results[pb]["tests"][-1]["success"] = False
                 _test_results[pb]["success"] = False
-                self.push_info_msg(str(e))
+                if e.args[0] is not None:
+                    self.push_info_msg(str(e))
                 raise e
             except Exception as e:
                 # TODO handle error
