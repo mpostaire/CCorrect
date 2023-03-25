@@ -97,7 +97,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             pid = self.debugger.start(timeout=timeout)
             try:
                 func(self, *args, **kwargs)
-            except AssertionError as e:
+            except self.failureException as e:
                 _test_results[pb]["tests"][-1]["success"] = False
                 _test_results[pb]["success"] = False
                 if e.args[0] is not None:
