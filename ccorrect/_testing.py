@@ -81,7 +81,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             self._CCorrectTestCase__current_problem = pb
             if pb not in _test_results:
                 _test_results[pb] = {
-                    "success": True,
+                    "success": False,
                     "score": 0,
                     "tests": []
                 }
@@ -89,7 +89,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             _test_results[pb]["tests"].append({
                 "description": "" if description is None else description,
                 "weight": weight,
-                "success": True,
+                "success": False,
                 "messages": [],
                 "tags": []
             })
@@ -98,18 +98,17 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             try:
                 func(self, *args, **kwargs)
             except self.failureException as e:
-                _test_results[pb]["tests"][-1]["success"] = False
-                _test_results[pb]["success"] = False
                 if e.args[0] is not None:
                     self.push_info_msg(str(e))
                 raise e
             except Exception as e:
                 # TODO handle error
-                _test_results[pb]["tests"][-1]["success"] = False
-                _test_results[pb]["success"] = False
                 # If we push the exception as a message, it pollutes the report for the student
                 # self.push_info_msg(str(e))
                 raise e
+            else:
+                _test_results[pb]["tests"][-1]["success"] = True
+                _test_results[pb]["success"] = True
             finally:
                 self._push_output()
                 self.debugger.finish()
