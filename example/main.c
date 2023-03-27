@@ -14,6 +14,14 @@ void out_of_bounds() {
     a[4] = 1;
 }
 
+int sigfpe() {
+    return 1 / 0;
+}
+
+int sigsegv() {
+    *(char *) NULL = 0;
+}
+
 int main() {
     return 0;
 }

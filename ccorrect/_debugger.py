@@ -281,8 +281,8 @@ class Debugger(ValueBuilder):
 
         # raise Exception(f"GOT EVENT {event.stop_signal}")
         # TODO find a way to make exception propagate from python while gdb is running the inferior
-        #       -----> this cannot work for everything but instead of raising an error, just quit gdb wth a special return code
-        print(f"GOT EVENT {event.stop_signal}", file=sys.stderr)
+        #   ---> write into a file the error type and the backtrace?
+        print(f"RECEIVED SIGNAL: {event.stop_signal}", file=sys.stderr)
 
     def __exited_event_handler(self, event):
         print(f"event type: exit ({event})")

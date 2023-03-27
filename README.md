@@ -23,6 +23,7 @@ A python module to write, grade and provide feedback for exercices in C using gd
     - [x] unit tests value builder
     - [x] unit tests timeout
     - [x] unit tests function call, watch and fail
+    - [ ] unit tests catch errors (SIGSEGV, SIGFPE, ...)
     - [ ] unit tests on different exercises (test on an expected results.yml)
 
 <!-- 

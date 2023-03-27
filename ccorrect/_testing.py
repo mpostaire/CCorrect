@@ -35,6 +35,10 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         super().__init__(methodName)
 
     def push_info_msg(self, msg):
+        if isinstance(msg, Exception):
+            if msg.args[0] is None:
+                return
+            msg = str(msg)
         if msg != "":
             _test_results[self.__current_problem]["tests"][-1]["messages"].append(msg)
 
@@ -98,14 +102,20 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             try:
                 func(self, *args, **kwargs)
             except self.failureException as e:
-                if e.args[0] is not None:
-                    self.push_info_msg(str(e))
+                self.push_info_msg(e)
                 raise e
-            except Exception as e:
-                # TODO handle error
-                # If we push the exception as a message, it pollutes the report for the student
-                # self.push_info_msg(str(e))
-                raise e
+            except gdb.error as e:
+                siginfo = gdb.convenience_variable("_siginfo")
+                signo = int(siginfo["si_signo"])
+                signals = {8: "SIGFPE", 11: "SIGSEGV"}
+                if signo in signals:
+                    msg = f"Your program received the signal: {signals[int(siginfo['si_signo'])]}\n{gdb.execute('backtrace', to_string=True)}"
+                    self.push_info_msg(msg)
+                    raise self.failureException(msg)
+                else:
+                    raise e
+            except:
+                raise
             else:
                 _test_results[pb]["tests"][-1]["success"] = True
                 _test_results[pb]["success"] = True
