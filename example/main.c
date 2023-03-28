@@ -14,12 +14,19 @@ void out_of_bounds() {
     a[4] = 1;
 }
 
-int sigfpe() {
-    return 1 / 0;
+int sigfpe(int i) {
+    int zero = 0;
+    return i / zero;
 }
 
-int sigsegv() {
+void sigsegv() {
     *(char *) NULL = 0;
+}
+
+void double_free() {
+    char *c = malloc(1);
+    free(c);
+    free(c);
 }
 
 int main() {

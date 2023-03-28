@@ -59,12 +59,19 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
             _test_results[self.__current_problem]["tests"][-1]["stderr"] = f.read()
             f.truncate(0)
 
-    def _push_asan_logs(self, pid):
+    def _push_asan_and_crash_logs(self, pid):
         asan_log_path = f"asan_log.{pid}"
         try:
             with open(asan_log_path, "r") as f:
                 _test_results[self.__current_problem]["tests"][-1]["asan_log"] = f.read()
             os.remove(asan_log_path)
+        except FileNotFoundError:
+            pass
+
+        try:
+            with open("crash_log.txt", "r") as f:
+                _test_results[self.__current_problem]["tests"][-1]["crash_log"] = f.read()
+            os.remove("crash_log.txt")
         except FileNotFoundError:
             pass
 
@@ -104,16 +111,6 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             except self.failureException as e:
                 self.push_info_msg(e)
                 raise e
-            except gdb.error as e:
-                siginfo = gdb.convenience_variable("_siginfo")
-                signo = int(siginfo["si_signo"])
-                signals = {8: "SIGFPE", 11: "SIGSEGV"}
-                if signo in signals:
-                    msg = f"Your program received the signal: {signals[int(siginfo['si_signo'])]}\n{gdb.execute('backtrace', to_string=True)}"
-                    self.push_info_msg(msg)
-                    raise self.failureException(msg)
-                else:
-                    raise e
             except:
                 raise
             else:
@@ -122,7 +119,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
             finally:
                 self._push_output()
                 self.debugger.finish()
-                self._push_asan_logs(pid)
+                self._push_asan_and_crash_logs(pid)
 
         return wrapper
 

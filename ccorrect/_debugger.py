@@ -39,7 +39,6 @@ class FuncBreakpoint(gdb.Breakpoint):
         try:
             frame = gdb.newest_frame()
             block = frame.block()
-            # TODO maybe it's necessary to call fetch_lazy() on each arg
             return tuple(symbol.value(frame) for symbol in block if symbol.is_argument)
         except RuntimeError:
             return None
@@ -258,6 +257,14 @@ class Debugger(ValueBuilder):
             raise RuntimeError("Another program is already being run by gdb")
         return int(gdb.convenience_variable("_inferior_thread_count"))
 
+    def __stack_variables(self):
+        try:
+            frame = gdb.newest_frame()
+            block = frame.block()
+            return {symbol.name: symbol.value(frame) for symbol in block}
+        except RuntimeError:
+            return None
+
     def __get_breakpoint(self, function):
         if function == "free":
             return self.__free_breakpoint
@@ -284,10 +291,19 @@ class Debugger(ValueBuilder):
             gdb.execute("set scheduler-locking off")
             return
 
-        # raise Exception(f"GOT EVENT {event.stop_signal}")
-        # TODO find a way to make exception propagate from python while gdb is running the inferior
-        #   ---> write into a file the error type and the backtrace?
-        print(f"RECEIVED SIGNAL: {event.stop_signal}", file=sys.stderr)
+        if event.stop_signal == "SIGALRM":
+            return
+        with open("crash_log.txt", "w") as f:
+            f.write(f"ERROR: Program received signal {event.stop_signal}\n")
+            f.write(gdb.execute('backtrace', to_string=True))
+            stack_variables = [f"{name} = {value}" for name, value in self.__stack_variables().items()]
+            if stack_variables:
+                stack_variables_str = "\n    ".join(stack_variables)
+            else:
+                stack_variables_str = "no variables"
+            f.write(f"Stack variables at the moment of the crash:\n    {stack_variables_str}\n")
+
+        print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
 
     def __exited_event_handler(self, event):
         print(f"event type: exit ({event})")
