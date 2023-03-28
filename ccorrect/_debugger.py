@@ -253,6 +253,11 @@ class Debugger(ValueBuilder):
 
         return gdb.parse_and_eval(f"{f'({return_type})' if return_type is not None else ''}{funcname}({', '.join(parsed_args)})")
 
+    def thread_count(self):
+        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
+            raise RuntimeError("Another program is already being run by gdb")
+        return int(gdb.convenience_variable("_inferior_thread_count"))
+
     def __get_breakpoint(self, function):
         if function == "free":
             return self.__free_breakpoint
