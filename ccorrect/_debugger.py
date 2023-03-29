@@ -67,17 +67,20 @@ class FuncBreakpoint(gdb.Breakpoint):
                 self.debugger.stats[self.location].args.append(args)
 
         if self.failure is not None:
-            if "errno" in self.failure and self.failure["errno"]:
+            if "errno" in self.failure and self.failure["errno"] is not None:
                 try:
                     gdb.set_convenience_variable("__CCorrect_errno", self.failure["errno"])
                     gdb.execute("set errno = $__CCorrect_errno")
                 except gdb.error:
                     print("can't set errno", file=sys.stderr)
 
-            gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
-            if self.watch:
-                self.debugger.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
-            gdb.execute("return $__CCorrect_return_var")
+            if "return" in self.failure and self.failure["return"] is not None:
+                gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
+                if self.watch:
+                    self.debugger.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
+                gdb.execute("return $__CCorrect_return_var")
+            else:
+                gdb.execute("return")
 
         return False
 
@@ -147,30 +150,34 @@ class Debugger(ValueBuilder):
                 bp.delete()
 
     @contextmanager
-    def fail(self, function, retval, when=None):
+    # def fail(self, function, retval, args=None, errno=None, when=None):
+    def fail(self, function, retval):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
             raise RuntimeError("Another program is already being run by gdb")
 
         # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
         # TODO set errno
         # TODO add unittests for errno and when
-        if when is not None:
-            when = set(when)
+        failure = {"return": retval}
+        # if errno is not None:
+        #     assert isinstance(errno, int) or (isinstance(errno, gdb.Value) and str(errno.type().strip_typedefs()) == "int")
+        #     failure["errno"] = errno
+        # if args is not None:
+        #     assert isinstance(args, (list, tuple))
+        #     failure["args"] = args
+        # if when is not None:
+        #     failure["when"] = set(when)
 
+        bp = self.__get_breakpoint(function)
         old_failure = None
         cleanup_breakpoint = False
-        failure = {"return": retval}
-        bp = self.__get_breakpoint(function)
         if bp is None:
             # create a new fail breakpoint if there wasn't one at this location
             bp = FuncBreakpoint(self, False, failure, function)
             self.__breakpoints[function] = bp
             cleanup_breakpoint = True
-        elif bp.failure is None:
-            # start failing if there is already a breakpoint at this location but it isn't a fail
-            bp.failure = failure
         else:
-            # there was already a fail breakpoint at this location so we set it a new failure
+            # there already is a breakpoint at this location so we set it a new failure, backing up the old one, if any, to restore later
             old_failure = bp.failure
             bp.failure = failure
 
@@ -233,7 +240,7 @@ class Debugger(ValueBuilder):
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
-    def call(self, funcname, args=None, return_type=None):
+    def call(self, funcname, args=None):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
             raise RuntimeError("Another program is already being run by gdb")
 
@@ -249,7 +256,7 @@ class Debugger(ValueBuilder):
                 gdb.set_convenience_variable(var_name, arg)
                 parsed_args.append(f"${var_name}")
 
-        return gdb.parse_and_eval(f"{f'({return_type})' if return_type is not None else ''}{funcname}({', '.join(parsed_args)})")
+        return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
 
     def thread_count(self):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
@@ -300,7 +307,7 @@ class Debugger(ValueBuilder):
                 stack_variables_str = "\n    ".join(stack_variables)
             else:
                 stack_variables_str = "no variables"
-            f.write(f"Stack variables at the moment of the crash:\n    {stack_variables_str}\n")
+            f.write(f"\n{'=' * 65}\n Stack variables at the moment of the crash:\n    {stack_variables_str}\n")
 
         print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
 
