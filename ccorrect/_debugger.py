@@ -245,18 +245,15 @@ class Debugger(ValueBuilder):
             raise RuntimeError("Another program is already being run by gdb")
 
         parsed_args = []
+        func = gdb.parse_and_eval(funcname)
         if args is not None:
-            func = gdb.parse_and_eval(funcname)
             arg_types = [field.type for field in func.type.fields()]
-            for i, (arg, type) in enumerate(zip(args, arg_types)):
+            for arg, type in zip(args, arg_types):
                 if not isinstance(arg, gdb.Value):
                     arg = self.value(type, arg)
+                parsed_args.append(arg)
 
-                var_name = f"__CCorrect_arg{i}"
-                gdb.set_convenience_variable(var_name, arg)
-                parsed_args.append(f"${var_name}")
-
-        return gdb.parse_and_eval(f"{funcname}({', '.join(parsed_args)})")
+        return func(*parsed_args)
 
     def thread_count(self):
         if gdb.convenience_variable("__CCorrect_debugging") != id(self):
@@ -302,7 +299,7 @@ class Debugger(ValueBuilder):
         with open("crash_log.txt", "w") as f:
             f.write(f"ERROR: Program received signal {event.stop_signal}\n")
             f.write(gdb.execute('backtrace', to_string=True))
-            stack_variables = [f"{name} = {value}" for name, value in self.__stack_variables().items()]
+            stack_variables = [f"{name} = ({value.type}) {value}" for name, value in self.__stack_variables().items()]
             if stack_variables:
                 stack_variables_str = "\n    ".join(stack_variables)
             else:
