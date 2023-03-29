@@ -300,6 +300,7 @@ class Debugger(ValueBuilder):
             f.write(f"ERROR: Program received signal {event.stop_signal}\n")
             f.write(gdb.execute('backtrace', to_string=True))
             stack_variables = [f"{name} = ({value.type}) {value}" for name, value in self.__stack_variables().items()]
+            # TODO print var: name = (type) value (auto dereference value if it is a pointer? what about long nested structs? and circular references?)
             if stack_variables:
                 stack_variables_str = "\n    ".join(stack_variables)
             else:
