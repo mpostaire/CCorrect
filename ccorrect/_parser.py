@@ -21,8 +21,8 @@ class FuncCallVisitor(c_ast.NodeVisitor):
     def visit_For(self, node):
         self.visit_scope(node)
 
-    # -------- potentially useless as the C syntax disallows decls inside whiles, ifs, do whiles and swithes
-    # TODO check ça pour etre sur (https://en.cppreference.com/w/c/language/scope)
+    # --- potentially useless as the C syntax disallows decls inside whiles, ifs, do whiles and swithes
+    # https://en.cppreference.com/w/c/language/scope
     def visit_While(self, node):
         self.visit_scope(node)
 
@@ -34,12 +34,12 @@ class FuncCallVisitor(c_ast.NodeVisitor):
 
     def visit_Switch(self, node):
         self.visit_scope(node)
-    # -------- potentially useless as the C syntax disallows decls inside whiles, ifs, do whiles and swithes
+    # --- potentially useless as the C syntax disallows decls inside whiles, ifs, do whiles and swithes
 
     def visit_PtrDecl(self, node):
         if isinstance(node.type, c_ast.FuncDecl):
             # print(f"{node} called at {node.coord}")
-            # TODO peut it se faire overwriter et le scope ne sera pas mis à jour ?
+            # TODO can this be overwritten, thus not updating scope?
             self.scopes[-1][node.type.type.declname] = True
 
         self.generic_visit(node)

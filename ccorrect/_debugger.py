@@ -67,14 +67,13 @@ class FuncBreakpoint(gdb.Breakpoint):
                 self.debugger.stats[self.location].args.append(args)
 
         if self.failure is not None:
-            # TODO handle case where errno might not be in current context
-            # TODO make unit tests for failures and errno
             if "errno" in self.failure and self.failure["errno"]:
-                print(f"ERRNO SET TO {self.failure['errno']}")
-                gdb.set_convenience_variable("__CCorrect_errno", self.failure["errno"])
-                gdb.execute("errno = $__CCorrect_errno")
+                try:
+                    gdb.set_convenience_variable("__CCorrect_errno", self.failure["errno"])
+                    gdb.execute("set errno = $__CCorrect_errno")
+                except gdb.error:
+                    print("can't set errno", file=sys.stderr)
 
-            # TODO if function doesn't return anything (void) don't do this (but it can still set errno)
             gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
             if self.watch:
                 self.debugger.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
@@ -111,8 +110,6 @@ class Debugger(ValueBuilder):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        # TODO maybe here is where I can catch internal exceptions (like from banned functions)???
-        #       ----> test but I don't think so...
         self.finish()
 
     @contextmanager
@@ -155,6 +152,8 @@ class Debugger(ValueBuilder):
             raise RuntimeError("Another program is already being run by gdb")
 
         # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
+        # TODO set errno
+        # TODO add unittests for errno and when
         if when is not None:
             when = set(when)
 
