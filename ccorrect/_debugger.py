@@ -104,7 +104,7 @@ class Debugger(ValueBuilder):
         for f in self.__sources_func_calls:
             if f in banned_functions:
                 print(f"'{f}' is a banned function", file=sys.stderr)
-                # TODO raise exception here?
+                # TODO THIS DOESN'T WORK ANYMORE... (make unittests)
                 # raise RuntimeError(f"'{self.location}' is a banned function")
                 gdb.execute("quit 1")
 
@@ -305,6 +305,10 @@ class Debugger(ValueBuilder):
                 stack_variables_str = "\n    ".join(stack_variables)
             else:
                 stack_variables_str = "no variables"
+            # TODO print stack variables for all stack (if crash happens in a stdlib function, it will show only the stack variables of
+            #       the stdlib's function stack variables and not the ones of the student code... --> print all stack variables until dummy frame)
+            # ---> Test if writing output of gdb.execute("backtrace -full -frame-arguments all", to_string=True) looks good
+            #       this can then be used with asan_log (there will be 2 backtraces asan and gdb)
             f.write(f"\n{'=' * 65}\nStack variables at the moment of the crash:\n    {stack_variables_str}\n")
 
         print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
