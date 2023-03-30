@@ -36,15 +36,24 @@ class ValueNode:
 
 class ScalarNode(ValueNode):
     def to_bytes(self):
+        type = self.type.unqualified().strip_typedefs()
+        assert type.code == gdb.TYPE_CODE_INT or type.code == gdb.TYPE_CODE_FLT
+
         # as floats/doubles in python don't have a to_bytes() method, use struct.pack()
         if isinstance(self.value, float):
-            return bytearray(struct.pack("f" if self.type.strip_typedefs().name == "float" else "d", self.value))
+            return bytearray(struct.pack("f" if type.name == "float" else "d", self.value))
 
-        if self.type.name == "char" or self.type.name == "unsigned char" or self.type.name == "signed char":
-            return bytearray(self.value.encode())
+        if isinstance(self.value, str):
+            self.value = ord(self.value[0])
+
+        try:
+            is_signed = self.type.is_signed
+        except AttributeError:
+            # gdb < 12.1: gdb.Type has no 'is_signed' attribute
+            is_signed = not type.name.startswith("unsigned")
 
         # Using this method instead of struct.pack() is easier (especially if it's a typedef): no need to build a format string matching the type
-        return bytearray(self.value.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed if self.type.is_scalar else False))
+        return bytearray(self.value.to_bytes(self.type.sizeof, sys.byteorder, signed=is_signed))
 
 
 class ArrayNode(ValueNode):

@@ -18,4 +18,4 @@ def run(test_script, silent_gdb=True):
 
 
 def _get_cmd(test_script, silent_gdb=True):
-    return f'gdb -batch{"-silent" if silent_gdb else ""} -ex "python __name__ = \'gdb\'" -x "{test_script}"'
+    return f'gdb -batch{"-silent" if silent_gdb else ""} -ex "python __name__ = \\"gdb\\"" -x "{test_script}"'
