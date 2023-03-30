@@ -305,7 +305,7 @@ class Debugger(ValueBuilder):
                 stack_variables_str = "\n    ".join(stack_variables)
             else:
                 stack_variables_str = "no variables"
-            f.write(f"\n{'=' * 65}\n Stack variables at the moment of the crash:\n    {stack_variables_str}\n")
+            f.write(f"\n{'=' * 65}\nStack variables at the moment of the crash:\n    {stack_variables_str}\n")
 
         print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
 
