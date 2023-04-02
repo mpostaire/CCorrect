@@ -2,6 +2,7 @@ import gdb
 import sys
 import os
 from contextlib import contextmanager
+from functools import wraps
 from ccorrect._parser import FuncCallParser
 from ccorrect._values import ValueBuilder, gdb_struct_iter
 
@@ -85,10 +86,63 @@ class FuncBreakpoint(gdb.Breakpoint):
         return False
 
 
+def ensure_debugging_id(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        current_id = gdb.convenience_variable("__CCorrect_debugging")
+        if isinstance(self, TemplateArgsFuncValue):
+            self_id = self.debugger.id
+        else:
+            self_id = self.id
+
+        if current_id is None:
+            raise RuntimeError("No program is being run by gdb")
+        if current_id != self_id:
+            raise RuntimeError(f"Another program is already being run by gdb (running: #{current_id}, self: #{self_id})")
+
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
+def ensure_none_debugging(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        current_id = gdb.convenience_variable("__CCorrect_debugging")
+        if current_id is not None:
+            raise RuntimeError(f"A program is already being run by gdb (running: #{current_id}, self: #{self.id})")
+
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
+class TemplateArgsFuncValue(gdb.Value):
+    def __init__(self, debugger, *args):
+        super().__init__(*args)
+        self.debugger = debugger
+
+    @ensure_debugging_id
+    def __call__(self, *args):
+        parsed_args = []
+        if args is not None:
+            arg_types = [field.type for field in self.type.fields()]
+            for arg, type in zip(args, arg_types):
+                if not isinstance(arg, gdb.Value):
+                    arg = self.debugger.value(type, arg)
+                parsed_args.append(arg)
+
+        return super().__call__(*parsed_args)
+
+
 class Debugger(ValueBuilder):
+    id_counter = 0
+
     def __init__(self, program, source_files=None, banned_functions=None, save_output=True, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
+        self.id = Debugger.id_counter
+        Debugger.id_counter += 1
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
@@ -116,13 +170,11 @@ class Debugger(ValueBuilder):
         self.finish()
 
     @contextmanager
+    @ensure_debugging_id
     def watch(self, functions):
         """
         This cannot watch function calls that are directly called by the debugger/gdb
         """
-        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
-            raise RuntimeError("Another program is already being run by gdb")
-
         if not isinstance(functions, (list, tuple)):
             functions = [functions]
 
@@ -150,11 +202,9 @@ class Debugger(ValueBuilder):
                 bp.delete()
 
     @contextmanager
+    @ensure_debugging_id
     # def fail(self, function, retval, args=None, errno=None, when=None):
     def fail(self, function, retval):
-        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
-            raise RuntimeError("Another program is already being run by gdb")
-
         # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
         # TODO set errno
         # TODO add unittests for errno and when
@@ -189,10 +239,8 @@ class Debugger(ValueBuilder):
                 del self.__breakpoints[bp.location]
                 bp.delete()
 
+    @ensure_none_debugging
     def start(self, timeout=0):
-        if gdb.convenience_variable("__CCorrect_debugging") is not None:
-            raise RuntimeError("Another program is already being run by gdb")
-
         self.stats.clear()
 
         # enable debuginfod if possible
@@ -217,14 +265,12 @@ class Debugger(ValueBuilder):
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
             gdb.parse_and_eval(f"(unsigned int) alarm({timeout})")
 
-        gdb.set_convenience_variable("__CCorrect_debugging", id(self))
+        gdb.set_convenience_variable("__CCorrect_debugging", self.id)
 
         return gdb.selected_inferior().pid
 
+    @ensure_debugging_id
     def finish(self, free_allocated_values=True):
-        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
-            raise RuntimeError("Another program is already being run by gdb")
-
         try:
             if free_allocated_values:
                 self.free_allocated_values()
@@ -241,24 +287,16 @@ class Debugger(ValueBuilder):
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
-    def call(self, funcname, args=None):
-        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
-            raise RuntimeError("Another program is already being run by gdb")
+    @ensure_debugging_id
+    def function(self, funcname):
+        return TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname))
 
-        parsed_args = []
-        func = gdb.parse_and_eval(funcname)
-        if args is not None:
-            arg_types = [field.type for field in func.type.fields()]
-            for arg, type in zip(args, arg_types):
-                if not isinstance(arg, gdb.Value):
-                    arg = self.value(type, arg)
-                parsed_args.append(arg)
+    @ensure_debugging_id
+    def functions(self, funcnames):
+        return tuple(TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
-        return func(*parsed_args)
-
+    @ensure_debugging_id
     def thread_count(self):
-        if gdb.convenience_variable("__CCorrect_debugging") != id(self):
-            raise RuntimeError("Another program is already being run by gdb")
         return int(gdb.convenience_variable("_inferior_thread_count"))
 
     def __get_breakpoint(self, function):
