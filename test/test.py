@@ -63,7 +63,7 @@ class TestValueBuilder(unittest.TestCase):
     def test_arrays(self):
         array = [1, 2, 3, 4, 42]
         val = debugger.value("int", array)
-        val = list(ccorrect.gdb_array_iterator(val))
+        val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
@@ -71,7 +71,7 @@ class TestValueBuilder(unittest.TestCase):
 
         array = ["h", "e", "l", "l", "o"]
         val = debugger.value("char", array)
-        val = list(ccorrect.gdb_array_iterator(val))
+        val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
@@ -90,7 +90,7 @@ class TestValueBuilder(unittest.TestCase):
         val_len = val.type.fields()[0].type.range()[1]
         self.assertEqual(val_len, len(string))
 
-        for i, c in enumerate(ccorrect.gdb_array_iterator(val)):
+        for i, c in enumerate(ccorrect.gdb_array_iter(val)):
             if i == len(string):
                 self.assertEqual(chr(c), '\0')
             else:
@@ -98,7 +98,7 @@ class TestValueBuilder(unittest.TestCase):
 
         val = debugger.string_allocated(string)
         val = val.dereference().cast(gdb.lookup_type("char").array(len(string)))
-        for i, c in enumerate(ccorrect.gdb_array_iterator(val)):
+        for i, c in enumerate(ccorrect.gdb_array_iter(val)):
             if i == len(string):
                 self.assertEqual(chr(c), '\0')
             else:
@@ -111,11 +111,11 @@ class TestValueBuilder(unittest.TestCase):
     def test_multidimensional_arrays(self):
         array = [[1, 2], [3, 4], [5, 6], [7, 8]]
         val = debugger.value("int", array)
-        val = list(ccorrect.gdb_array_iterator(val))
+        val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
-            elem = list(ccorrect.gdb_array_iterator(elem))
+            elem = list(ccorrect.gdb_array_iter(elem))
 
             self.assertEqual(len(elem), len(array[i]))
             for j, inner_elem in enumerate(elem):
@@ -123,15 +123,15 @@ class TestValueBuilder(unittest.TestCase):
 
         array = [[[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]], [[1, 2, 3], [4, 5, 6]], [[7, 8, 9], [10, 11, 12]]]
         val = debugger.value("int", array)
-        val = list(ccorrect.gdb_array_iterator(val))
+        val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
-            elem = list(ccorrect.gdb_array_iterator(elem))
+            elem = list(ccorrect.gdb_array_iter(elem))
 
             self.assertEqual(len(elem), len(array[i]))
             for j, inner_elem in enumerate(elem):
-                inner_elem = list(ccorrect.gdb_array_iterator(inner_elem))
+                inner_elem = list(ccorrect.gdb_array_iter(inner_elem))
 
                 self.assertEqual(len(inner_elem), len(array[i][j]))
                 for k, innermost_elem in enumerate(inner_elem):
@@ -182,7 +182,7 @@ class TestValueBuilder(unittest.TestCase):
         val = debugger.value("node_array", node_struct)
 
         self.assertEqual(val["value"], node_struct["value"])
-        val = list(ccorrect.gdb_array_iterator(val["next"]))
+        val = list(ccorrect.gdb_array_iter(val["next"]))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
@@ -194,11 +194,11 @@ class TestValueBuilder(unittest.TestCase):
         val = debugger.value("node_array2d", node_struct)
 
         self.assertEqual(val["value"], node_struct["value"])
-        val = list(ccorrect.gdb_array_iterator(val["next"]))
+        val = list(ccorrect.gdb_array_iter(val["next"]))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
-            elem = list(ccorrect.gdb_array_iterator(elem))
+            elem = list(ccorrect.gdb_array_iter(elem))
 
             self.assertEqual(len(elem), len(array[i]))
             for j, inner_elem in enumerate(elem):
@@ -234,7 +234,7 @@ class TestValueBuilder(unittest.TestCase):
         array = [{"value": 4, "next": None}, {"value": 5, "next": {"value": 42, "next": None}}, {"value": 6, "next": None}]
         val = debugger.value("node", array)
 
-        self.assertEqual(len(array), len(list(ccorrect.gdb_array_iterator(val))))
+        self.assertEqual(len(array), len(list(ccorrect.gdb_array_iter(val))))
 
         self.assertEqual(val[0]["value"], 4)
         self.assertEqual(val[0]["next"], 0)

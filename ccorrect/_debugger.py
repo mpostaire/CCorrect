@@ -3,7 +3,7 @@ import sys
 import os
 from contextlib import contextmanager
 from ccorrect._parser import FuncCallParser
-from ccorrect._values import ValueBuilder
+from ccorrect._values import ValueBuilder, gdb_struct_iter
 
 
 class FuncStats:
@@ -204,7 +204,8 @@ class Debugger(ValueBuilder):
         gdb.events.stop.connect(self.__stop_event_handler)
         gdb.events.exited.connect(self.__exited_event_handler)
 
-        gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={1 if self._asan_detect_leaks else 0}")
+        # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
+        gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
         gdb.execute(f"file {self._program}")  # load program
         gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
@@ -260,14 +261,6 @@ class Debugger(ValueBuilder):
             raise RuntimeError("Another program is already being run by gdb")
         return int(gdb.convenience_variable("_inferior_thread_count"))
 
-    def __stack_variables(self):
-        try:
-            frame = gdb.newest_frame()
-            block = frame.block()
-            return {symbol.name: symbol.value(frame) for symbol in block}
-        except RuntimeError:
-            return None
-
     def __get_breakpoint(self, function):
         if function == "free":
             return self.__free_breakpoint
@@ -290,28 +283,15 @@ class Debugger(ValueBuilder):
 
         # the breakpoint on main() created by the gdb start command will call this handler so we ignore all events that aren't signals
         # this handler won't be called by our own FuncBreakpoint and FuncFinishBreakpoint because they never stop (their stop method always return False)
-        if not isinstance(event, gdb.SignalEvent):
+        if not isinstance(event, gdb.SignalEvent) or event.stop_signal == "SIGALRM":
             gdb.execute("set scheduler-locking off")
             return
 
-        if event.stop_signal == "SIGALRM":
-            return
         with open("crash_log.txt", "w") as f:
-            f.write(f"ERROR: Program received signal {event.stop_signal}\n")
-            f.write(gdb.execute('backtrace', to_string=True))
-            stack_variables = [f"{name} = ({value.type}) {value}" for name, value in self.__stack_variables().items()]
-            # TODO print var: name = (type) value (auto dereference value if it is a pointer? what about long nested structs? and circular references?)
-            if stack_variables:
-                stack_variables_str = "\n    ".join(stack_variables)
-            else:
-                stack_variables_str = "no variables"
-            # TODO print stack variables for all stack (if crash happens in a stdlib function, it will show only the stack variables of
-            #       the stdlib's function stack variables and not the ones of the student code... --> print all stack variables until dummy frame)
-            # ---> Test if writing output of gdb.execute("backtrace -full -frame-arguments all", to_string=True) looks good
-            #       this can then be used with asan_log (there will be 2 backtraces asan and gdb)
-            f.write(f"\n{'=' * 65}\nStack variables at the moment of the crash:\n    {stack_variables_str}\n")
+            f.write(self.__backtrace(event.stop_signal))
 
         print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
+        gdb.execute("set scheduler-locking off")
 
     def __exited_event_handler(self, event):
         print(f"event type: exit ({event})")
@@ -319,3 +299,78 @@ class Debugger(ValueBuilder):
             print(f"exit code: {event.exit_code}")
         else:
             print("exit code not available")
+
+    def __frames(self):
+        frame = gdb.newest_frame()
+        while frame is not None and frame.type() != gdb.DUMMY_FRAME:
+            yield frame
+            frame = frame.older()
+
+    def __frame_variables(self, frame=None):
+        if frame is None:
+            frame = gdb.newest_frame()
+        try:
+            block = frame.block()
+            return {symbol.name: (symbol.value(frame), symbol.is_argument) for symbol in block}
+        except RuntimeError:
+            return None
+
+    def __value_str(self, name, value, level=0, is_member=False):
+        # TODO cycle detection (PTR and STRUCT)
+        ret = ""
+        if name is not None:
+            ret += f"{'    ' * level}{'.' if is_member else ''}{name} = "
+
+        try:
+            value.fetch_lazy()
+        except gdb.MemoryError:
+            return ret + f"({value.type}) <cannot access memory at address: {value.address}>"
+
+        if value.is_optimized_out:
+            return ret + f"({value.type}) <optimized out>"
+
+        if value.type.code == gdb.TYPE_CODE_PTR:
+            ret += f"({value.type}) {value}"
+            try:
+                deref_value = value.dereference()
+                deref_value.fetch_lazy()
+                return ret + f" -> {self.__value_str(None, deref_value, level=level)}"
+            except gdb.MemoryError:
+                # don't expand nested pointer if it can't be accessed
+                return ret
+
+        if value.type.code == gdb.TYPE_CODE_STRUCT:
+            ret += f"({value.type}) {{\n"
+            for name, val in gdb_struct_iter(value):
+                ret += f"{self.__value_str(name, val, level=level + 1, is_member=True)}\n"
+            return ret + f"{'    ' * level}}}"
+
+        if value.type.code == gdb.TYPE_CODE_ARRAY:
+            # TODO (ptr array: only print ptr value or also print recursively print contents? may take lots of space)
+            return ret + f"({value.type}) {value}"
+
+        return ret + f"({value.type}) {value}"
+
+    def __backtrace(self, stop_signal):
+        ret = f"ERROR: Program received signal {stop_signal}\n\n{'=' * 65}\n" \
+            "Backtrace and stack variables at the moment of the crash:\n"
+
+        for i, frame in enumerate(self.__frames()):
+            variables = self.__frame_variables(frame)
+            if variables is None:
+                arg_names = ""
+                variables_str = "    <no variables>"
+            else:
+                arg_names = ", ".join(name for name, (_, is_argument) in variables.items() if is_argument)
+                variables_str = "\n".join(self.__value_str(name, value, level=1) for name, (value, _) in variables.items())
+
+            sal = frame.find_sal()
+            if sal is None or sal.symtab is None:
+                filepath = ""
+                line = ""
+            else:
+                filepath = sal.symtab.fullname()
+                line = sal.line
+            ret += f"#{i} {frame.name()}({arg_names}) at {filepath}:{line}\n{variables_str}\n"
+
+        return ret

@@ -3,7 +3,7 @@ import struct
 import sys
 
 
-def gdb_array_iterator(value):
+def gdb_array_iter(value):
     # type_of_elements = value.type.target()
     range_of_array = value.type.fields()[0].type.range()
     len_of_array = range_of_array[1] + 1
@@ -11,7 +11,7 @@ def gdb_array_iterator(value):
         yield value[i]
 
 
-def gdb_struct_iterator(value):
+def gdb_struct_iter(value):
     for f in value.type.fields():
         yield f.name, value[f.name]
 
