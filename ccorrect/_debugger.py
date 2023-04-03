@@ -6,6 +6,9 @@ from functools import wraps
 from ccorrect._parser import FuncCallParser
 from ccorrect._values import ValueBuilder, gdb_struct_iter
 
+class BannedFuncError(AssertionError):
+    pass
+
 
 class FuncStats:
     def __init__(self, name: str, called: int, args: list, returns: list):
@@ -138,7 +141,7 @@ class TemplateArgsFuncValue(gdb.Value):
 class Debugger(ValueBuilder):
     id_counter = 0
 
-    def __init__(self, program, source_files=None, banned_functions=None, save_output=True, asan_detect_leaks=False):
+    def __init__(self, program, save_output=True, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
         self.id = Debugger.id_counter
@@ -146,25 +149,12 @@ class Debugger(ValueBuilder):
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
-        self.__sources_func_calls = set()
         self.__breakpoints = {}
-
-        if source_files:
-            for f in source_files:
-                func_calls = FuncCallParser(f).parse()
-                if func_calls:
-                    self.__sources_func_calls.update(func_calls)
-
-        for f in self.__sources_func_calls:
-            if f in banned_functions:
-                print(f"'{f}' is a banned function", file=sys.stderr)
-                # TODO THIS DOESN'T WORK ANYMORE... (make unittests)
-                # raise RuntimeError(f"'{self.location}' is a banned function")
-                gdb.execute("quit 1")
+        self.__main_source = None
 
     def __enter__(self):
-        self.start()
-        return self
+        pid = self.start()
+        return self, pid
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.finish()
@@ -240,7 +230,7 @@ class Debugger(ValueBuilder):
                 bp.delete()
 
     @ensure_none_debugging
-    def start(self, timeout=0):
+    def start(self, timeout=0, banned_functions=None):
         self.stats.clear()
 
         # enable debuginfod if possible
@@ -249,12 +239,19 @@ class Debugger(ValueBuilder):
         except gdb.error:
             print("debuginfod cannot be enabled", file=sys.stderr)
 
-        gdb.events.stop.connect(self.__stop_event_handler)
-        gdb.events.exited.connect(self.__exited_event_handler)
-
         # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
         gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
         gdb.execute(f"file {self._program}")  # load program
+
+        try:
+            self.__check_banned_functions(banned_functions)
+        except BannedFuncError as e:
+            gdb.execute("file")  # discard any info on the loaded program and the symbol table
+            raise e
+
+        gdb.events.stop.connect(self.__stop_event_handler)
+        gdb.events.exited.connect(self.__exited_event_handler)
+
         gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
         # create breakpoint after start command to avoid the address sanitizer setup
@@ -337,6 +334,25 @@ class Debugger(ValueBuilder):
             print(f"exit code: {event.exit_code}")
         else:
             print("exit code not available")
+
+    def __check_banned_functions(self, banned_functions):
+        if banned_functions is None:
+            return
+
+        if self.__main_source is None:
+            sal = gdb.decode_line("main")[1][0]
+            self.__main_source = sal.symtab.fullname()
+
+        func_calls = FuncCallParser(self.__main_source).parse()
+        found_banned_funcs = list(func_calls & set(banned_functions))
+
+        if len(found_banned_funcs) == 1:
+            msg = f"'{found_banned_funcs[0]}' is banned"
+            raise BannedFuncError(msg)
+        elif len(found_banned_funcs) > 1:
+            funcnames = [f"'{funcname}'" for funcname in found_banned_funcs]
+            msg = f"{', '.join(funcnames[:-1])} and {funcnames[-1]} are banned"
+            raise BannedFuncError(msg)
 
     def __frames(self):
         frame = gdb.newest_frame()

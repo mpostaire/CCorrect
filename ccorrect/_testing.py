@@ -4,6 +4,8 @@ import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
 from ccorrect import Debugger
+from ccorrect._debugger import BannedFuncError
+
 
 _test_results = {}
 
@@ -52,12 +54,19 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         except gdb.error:
             pass
 
-        with open("stdout.txt", "r+") as f:
-            _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
-            f.truncate(0)
-        with open("stderr.txt", "r+") as f:
-            _test_results[self.__current_problem]["tests"][-1]["stderr"] = f.read()
-            f.truncate(0)
+        try:
+            with open("stdout.txt", "r+") as f:
+                _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
+                f.truncate(0)
+        except FileNotFoundError:
+            pass
+
+        try:
+            with open("stderr.txt", "r+") as f:
+                _test_results[self.__current_problem]["tests"][-1]["stderr"] = f.read()
+                f.truncate(0)
+        except FileNotFoundError:
+            pass
 
     def _push_asan_and_crash_logs(self, pid):
         asan_log_path = f"asan_log.{pid}"
@@ -76,7 +85,7 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
             pass
 
 
-def test_metadata(problem=None, description=None, weight=1, timeout=0):
+def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_functions=None):
     assert weight >= 1
     assert timeout >= 0
 
@@ -105,21 +114,24 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 "tags": []
             })
 
-            pid = self.debugger.start(timeout=timeout)
+            pid = None
             try:
+                pid = self.debugger.start(timeout=timeout, banned_functions=banned_functions)
                 func(self, *args, **kwargs)
+            except BannedFuncError as e:
+                self.push_info_msg(e)
+                raise self.failureException(e) from e
             except self.failureException as e:
                 self.push_info_msg(e)
                 raise e
-            except:
-                raise
             else:
                 _test_results[pb]["tests"][-1]["success"] = True
                 _test_results[pb]["success"] = True
             finally:
-                self._push_output()
-                self.debugger.finish()
-                self._push_asan_and_crash_logs(pid)
+                if pid is not None:
+                    self._push_output()
+                    self.debugger.finish()
+                    self._push_asan_and_crash_logs(pid)
 
         return wrapper
 
