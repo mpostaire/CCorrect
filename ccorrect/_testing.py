@@ -10,7 +10,11 @@ from ccorrect._debugger import BannedFuncError
 _test_results = {}
 
 
-class MetaCCorrectTestCase(type):
+class TestAssertionError(AssertionError):
+    pass
+
+
+class MetaTestCase(type):
     """
     Decorates all methods starting with 'test' that weren't already decorated by the 'test_metadata' decorator (https://stackoverflow.com/a/6307917).
     This is useful because only methods decorated by 'test_metadata' can save their results and this makes the use of python's unittest module easy with CCorrect.
@@ -27,8 +31,9 @@ class MetaCCorrectTestCase(type):
         return type.__new__(cls, name, bases, dict)
 
 
-class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
+class TestCase(unittest.TestCase, metaclass=MetaTestCase):
     longMessage = False
+    failureException = TestAssertionError
     debugger = None
 
     def __init__(self, methodName: str = "runTest") -> None:
@@ -102,7 +107,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_fu
 
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            if not isinstance(self, CCorrectTestCase):
+            if not isinstance(self, TestCase):
                 raise TypeError("The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
 
             pb = func.__name__ if problem is None else problem
