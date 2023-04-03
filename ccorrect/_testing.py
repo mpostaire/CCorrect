@@ -111,7 +111,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_fu
                 raise TypeError("The 'test_metadata' decorator can only be used on methods of instances of 'CCorrectTestCase'")
 
             pb = func.__name__ if problem is None else problem
-            self._CCorrectTestCase__current_problem = pb
+            self._TestCase__current_problem = pb
             if pb not in _test_results:
                 _test_results[pb] = {
                     "success": False,
