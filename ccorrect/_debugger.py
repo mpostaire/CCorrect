@@ -4,7 +4,7 @@ import os
 from contextlib import contextmanager
 from functools import wraps
 from ccorrect._parser import FuncCallParser
-from ccorrect._values import ValueBuilder, gdb_struct_iter
+from ccorrect._values import ValueBuilder
 
 class BannedFuncError(AssertionError):
     pass
@@ -89,7 +89,7 @@ class FuncBreakpoint(gdb.Breakpoint):
         return False
 
 
-def ensure_debugging_id(func):
+def ensure_self_debugging(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         current_id = gdb.convenience_variable("__CCorrect_debugging")
@@ -125,7 +125,7 @@ class TemplateArgsFuncValue(gdb.Value):
         super().__init__(*args)
         self.debugger = debugger
 
-    @ensure_debugging_id
+    @ensure_self_debugging
     def __call__(self, *args):
         parsed_args = []
         if args is not None:
@@ -161,7 +161,7 @@ class Debugger(ValueBuilder):
         self.finish()
 
     @contextmanager
-    @ensure_debugging_id
+    @ensure_self_debugging
     def watch(self, functions):
         """
         This cannot watch function calls that are directly called by the debugger/gdb
@@ -193,7 +193,7 @@ class Debugger(ValueBuilder):
                 bp.delete()
 
     @contextmanager
-    @ensure_debugging_id
+    @ensure_self_debugging
     # def fail(self, function, retval, args=None, errno=None, when=None):
     def fail(self, function, retval):
         # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
@@ -268,7 +268,7 @@ class Debugger(ValueBuilder):
 
         return gdb.selected_inferior().pid
 
-    @ensure_debugging_id
+    @ensure_self_debugging
     def finish(self, free_allocated_values=True):
         try:
             if free_allocated_values:
@@ -286,15 +286,15 @@ class Debugger(ValueBuilder):
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
-    @ensure_debugging_id
+    @ensure_self_debugging
     def function(self, funcname):
         return TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname))
 
-    @ensure_debugging_id
+    @ensure_self_debugging
     def functions(self, funcnames):
         return tuple(TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
-    @ensure_debugging_id
+    @ensure_self_debugging
     def thread_count(self):
         return int(gdb.convenience_variable("_inferior_thread_count"))
 
@@ -375,41 +375,22 @@ class Debugger(ValueBuilder):
         except RuntimeError:
             return None
 
-    def __value_str(self, name, value, level=0, is_member=False):
-        # TODO cycle detection (PTR and STRUCT)
-        ret = ""
-        if name is not None:
-            ret += f"{'    ' * level}{'.' if is_member else ''}{name} = "
+    def __value_str(self, name, value):
+        prefix = f"{name} = ({value.type})"
 
         try:
-            value.fetch_lazy()
+            value_str = value.format_string(
+                raw=True,
+                pretty_arrays=True,
+                max_elements=16,
+                pretty_structs=True,
+                max_depth=16,
+                unions=True
+            )
         except gdb.MemoryError:
-            return ret + f"({value.type}) <cannot access memory at address: {value.address}>"
+            return f"{prefix} <cannot access memory at address: {value.address}>"
 
-        if value.is_optimized_out:
-            return ret + f"({value.type}) <optimized out>"
-
-        if value.type.code == gdb.TYPE_CODE_PTR:
-            ret += f"({value.type}) {value}"
-            try:
-                deref_value = value.dereference()
-                deref_value.fetch_lazy()
-                return ret + f" -> {self.__value_str(None, deref_value, level=level)}"
-            except gdb.MemoryError:
-                # don't expand nested pointer if it can't be accessed
-                return ret
-
-        if value.type.code == gdb.TYPE_CODE_STRUCT:
-            ret += f"({value.type}) {{\n"
-            for name, val in gdb_struct_iter(value):
-                ret += f"{self.__value_str(name, val, level=level + 1, is_member=True)}\n"
-            return ret + f"{'    ' * level}}}"
-
-        if value.type.code == gdb.TYPE_CODE_ARRAY:
-            # TODO (ptr array: only print ptr value or also print recursively print contents? may take lots of space)
-            return ret + f"({value.type}) {value}"
-
-        return ret + f"({value.type}) {value}"
+        return f"{prefix} {value_str}"
 
     def __backtrace(self, stop_signal, max_depth):
         ret = f"ERROR: Program received signal {stop_signal}\n\n{'=' * 65}\n" \
@@ -425,7 +406,11 @@ class Debugger(ValueBuilder):
                 variables_str = "    <no variables>"
             else:
                 arg_names = ", ".join(name for name, (_, is_argument) in variables.items() if is_argument)
-                variables_str = "\n".join(self.__value_str(name, value, level=1) for name, (value, _) in variables.items())
+                variables_str = "\n".join(self.__value_str(name, value) for name, (value, _) in variables.items())
+                lines = variables_str.splitlines()
+                for j in range(len(lines)):
+                    lines[j] = f"    {lines[j]}"
+                variables_str = "\n".join(lines)
 
             sal = frame.find_sal()
             if sal is None or sal.symtab is None:
