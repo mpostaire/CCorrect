@@ -93,8 +93,8 @@ def ensure_self_debugging(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         current_id = gdb.convenience_variable("__CCorrect_debugging")
-        if isinstance(self, TemplateArgsFuncValue):
-            self_id = self.debugger._id
+        if isinstance(self, FuncWrapper):
+            self_id = self._debugger._id
         else:
             self_id = self._id
 
@@ -120,22 +120,28 @@ def ensure_none_debugging(func):
     return wrapper
 
 
-class TemplateArgsFuncValue(gdb.Value):
-    def __init__(self, debugger, *args):
-        super().__init__(*args)
-        self.debugger = debugger
+class FuncWrapper:
+    """
+    Extending gdb.Value doesn't always work depending on the gdb version so we make
+    a wrapper around a gdb.Value representing a function that parses template arguments.
+    """
+
+    def __init__(self, debugger, *args, **kwargs):
+        self._debugger = debugger
+        self._value = gdb.Value(*args, **kwargs)
 
     @ensure_self_debugging
     def __call__(self, *args):
         parsed_args = []
         if args is not None:
-            arg_types = [field.type for field in self.type.fields()]
+            arg_types = [field.type for field in self._value.type.fields()]
             for arg, type in zip(args, arg_types):
-                if not isinstance(arg, gdb.Value):
-                    arg = self.debugger.value(type, arg)
+                if isinstance(arg, FuncWrapper):
+                    arg = arg._value
+                elif not isinstance(arg, gdb.Value):
+                    arg = self._debugger.value(type, arg)
                 parsed_args.append(arg)
-
-        return super().__call__(*parsed_args)
+        return self._value(*parsed_args)
 
 
 class Debugger(ValueBuilder):
@@ -288,11 +294,11 @@ class Debugger(ValueBuilder):
 
     @ensure_self_debugging
     def function(self, funcname):
-        return TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname))
+        return FuncWrapper(self, gdb.parse_and_eval(funcname))
 
     @ensure_self_debugging
     def functions(self, funcnames):
-        return tuple(TemplateArgsFuncValue(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
+        return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
     @ensure_self_debugging
     def thread_count(self):
