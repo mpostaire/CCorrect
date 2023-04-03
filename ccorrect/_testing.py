@@ -68,12 +68,20 @@ class CCorrectTestCase(unittest.TestCase, metaclass=MetaCCorrectTestCase):
         except FileNotFoundError:
             pass
 
-    def _push_asan_and_crash_logs(self, pid):
+    def _push_sanitizers_and_crash_logs(self, pid):
         asan_log_path = f"asan_log.{pid}"
         try:
             with open(asan_log_path, "r") as f:
                 _test_results[self.__current_problem]["tests"][-1]["asan_log"] = f.read()
             os.remove(asan_log_path)
+        except FileNotFoundError:
+            pass
+
+        tsan_log_path = f"tsan_log.{pid}"
+        try:
+            with open(tsan_log_path, "r") as f:
+                _test_results[self.__current_problem]["tests"][-1]["tsan_log"] = f.read()
+            os.remove(tsan_log_path)
         except FileNotFoundError:
             pass
 
@@ -131,7 +139,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_fu
                 if pid is not None:
                     self._push_output()
                     self.debugger.finish()
-                    self._push_asan_and_crash_logs(pid)
+                    self._push_sanitizers_and_crash_logs(pid)
 
         return wrapper
 

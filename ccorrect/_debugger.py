@@ -241,6 +241,7 @@ class Debugger(ValueBuilder):
 
         # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
         gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
+        gdb.execute(f"set environment TSAN_OPTIONS=log_path=tsan_log")
         gdb.execute(f"file {self._program}")  # load program
 
         try:
