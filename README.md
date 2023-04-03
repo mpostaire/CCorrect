@@ -11,7 +11,7 @@ A python module to write, grade and provide feedback for exercices in C using gd
 - [x] Ban usage of some functions
 - [ ] Segfault crash report
     - [x] Show backtrace with stack variables at the moment of the crash
-    - [ ] Stack/Heap visualization on crash
+    - [ ] Heap visualization at the moment of the crash?
 - [x] Support execution timeout
 - [x] Make an API that makes gdb's API easier and an API for writing tests
     - [x] gdb.Value builder from python objects
