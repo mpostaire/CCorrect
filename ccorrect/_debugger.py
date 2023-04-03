@@ -94,9 +94,9 @@ def ensure_debugging_id(func):
     def wrapper(self, *args, **kwargs):
         current_id = gdb.convenience_variable("__CCorrect_debugging")
         if isinstance(self, TemplateArgsFuncValue):
-            self_id = self.debugger.id
+            self_id = self.debugger._id
         else:
-            self_id = self.id
+            self_id = self._id
 
         if current_id is None:
             raise RuntimeError("No program is being run by gdb")
@@ -113,7 +113,7 @@ def ensure_none_debugging(func):
     def wrapper(self, *args, **kwargs):
         current_id = gdb.convenience_variable("__CCorrect_debugging")
         if current_id is not None:
-            raise RuntimeError(f"A program is already being run by gdb (running: #{current_id}, self: #{self.id})")
+            raise RuntimeError(f"A program is already being run by gdb (running: #{current_id}, self: #{self._id})")
 
         return func(self, *args, **kwargs)
 
@@ -139,13 +139,14 @@ class TemplateArgsFuncValue(gdb.Value):
 
 
 class Debugger(ValueBuilder):
-    id_counter = 0
+    _id_counter = 0
 
-    def __init__(self, program, save_output=True, asan_detect_leaks=False):
+    def __init__(self, program, backtrace_max_depth=8, save_output=True, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
-        self.id = Debugger.id_counter
-        Debugger.id_counter += 1
+        self.backtrace_max_depth = backtrace_max_depth
+        self._id = Debugger._id_counter
+        Debugger._id_counter += 1
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
@@ -241,7 +242,7 @@ class Debugger(ValueBuilder):
 
         # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
         gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
-        gdb.execute(f"set environment TSAN_OPTIONS=log_path=tsan_log")
+        gdb.execute("set environment TSAN_OPTIONS=log_path=tsan_log")
         gdb.execute(f"file {self._program}")  # load program
 
         try:
@@ -263,7 +264,7 @@ class Debugger(ValueBuilder):
             gdb.execute("handle SIGALRM stop")  # tell gdb to stop when the inferior receives a SIGALRM
             gdb.parse_and_eval(f"(unsigned int) alarm({timeout})")
 
-        gdb.set_convenience_variable("__CCorrect_debugging", self.id)
+        gdb.set_convenience_variable("__CCorrect_debugging", self._id)
 
         return gdb.selected_inferior().pid
 
@@ -324,7 +325,7 @@ class Debugger(ValueBuilder):
             return
 
         with open("crash_log.txt", "w") as f:
-            f.write(self.__backtrace(event.stop_signal))
+            f.write(self.__backtrace(event.stop_signal, max_depth=self.backtrace_max_depth))
 
         print(f"RECEIVED SIGNAL: {event.stop_signal} (check 'crash_log.txt' for more info)", file=sys.stderr)
         gdb.execute("set scheduler-locking off")
@@ -355,11 +356,15 @@ class Debugger(ValueBuilder):
             msg = f"{', '.join(funcnames[:-1])} and {funcnames[-1]} are banned"
             raise BannedFuncError(msg)
 
-    def __frames(self):
+    def __frames(self, max_depth):
         frame = gdb.newest_frame()
-        while frame is not None and frame.type() != gdb.DUMMY_FRAME:
+        for _ in range(max_depth):
+            if frame is None or frame.type() == gdb.DUMMY_FRAME:
+                return
             yield frame
             frame = frame.older()
+
+        yield "--- max depth reached ---"
 
     def __frame_variables(self, frame=None):
         if frame is None:
@@ -406,12 +411,15 @@ class Debugger(ValueBuilder):
 
         return ret + f"({value.type}) {value}"
 
-    def __backtrace(self, stop_signal):
+    def __backtrace(self, stop_signal, max_depth):
         ret = f"ERROR: Program received signal {stop_signal}\n\n{'=' * 65}\n" \
             "Backtrace and stack variables at the moment of the crash:\n"
 
-        for i, frame in enumerate(self.__frames()):
-            variables = self.__frame_variables(frame)
+        for i, frame in enumerate(self.__frames(max_depth)):
+            if isinstance(frame, str):
+                return f"{ret} {frame}\n"
+
+            variables = self.__frame_variables(frame) if frame is not None else None
             if variables is None:
                 arg_names = ""
                 variables_str = "    <no variables>"
