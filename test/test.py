@@ -38,6 +38,9 @@ class TestValueBuilder(unittest.TestCase):
         val = debugger.value("double", 42.42)
         self.assertEqual(float(val), 42.42)
 
+        val = debugger.value("enum enumeration", 1)
+        self.assertEqual(int(val), 1)
+
     def test_basic_allocated_types(self):
         val = debugger.value_allocated("char", "c")
         self.assertEqual(chr(val.dereference()), "c")
@@ -59,6 +62,9 @@ class TestValueBuilder(unittest.TestCase):
 
         val = debugger.value_allocated("double", 42.42)
         self.assertEqual(float(val.dereference()), 42.42)
+
+        val = debugger.value_allocated("enum enumeration", 1)
+        self.assertEqual(int(val.dereference()), 1)
 
     def test_arrays(self):
         array = [1, 2, 3, 4, 42]

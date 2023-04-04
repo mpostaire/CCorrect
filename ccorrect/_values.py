@@ -152,6 +152,8 @@ class ValueBuilder:
             return ArrayNode(type, value, self, parent=parent)
         elif isinstance(value, dict):
             return StructNode(type, value, self, parent=parent)
+        elif type.code == gdb.TYPE_CODE_ENUM:
+            return ScalarNode(type.target(), value, self, parent=parent)
         else:
             return ScalarNode(type, value, self, parent=parent)
 

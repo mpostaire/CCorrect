@@ -15,8 +15,8 @@ A python module to write, grade and provide feedback for exercices in C using gd
 - [x] Support execution timeout
 - [x] Make an API that makes gdb's API easier and an API for writing tests
     - [x] gdb.Value builder from python objects
-        - [x] build scalars, structs, arrays
-        - [ ] build unions, enums
+        - [x] build scalars, structs, arrays, enums
+        - [ ] build unions
         - [ ] build stucts with flexible array
     - [x] call functions
     - [x] tests API
@@ -29,7 +29,6 @@ A python module to write, grade and provide feedback for exercices in C using gd
     - [x] unit tests value builder
     - [x] unit tests timeout
     - [x] unit tests function call, watch and fail
-    - [ ] unit tests banned functions
     - [ ] unit tests for funccall parser
     - [ ] unit tests catch errors (SIGSEGV, SIGFPE, double free)
     - [ ] unit tests on different exercises (test on an expected results.yml)

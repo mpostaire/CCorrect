@@ -49,6 +49,12 @@ typedef struct {
     char *name;
 } str_struct;
 
+enum enumeration {
+    enum_elem1,
+    enum_elem2,
+    enum_elem3,
+};
+
 size_t str_struct_name_len(str_struct *s) {
     return strlen(s->name);
 }
@@ -84,6 +90,7 @@ int main() {
     test_struct g = {0};
     test_struct_packed h = {0};
     str_struct i = {0};
+    enum enumeration k = enum_elem1;
 
     return 0;
 }
