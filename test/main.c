@@ -55,6 +55,12 @@ enum enumeration {
     enum_elem3,
 };
 
+typedef union {
+    char c;
+    test_struct t;
+    long l;
+} test_union;
+
 size_t str_struct_name_len(str_struct *s) {
     return strlen(s->name);
 }
@@ -91,6 +97,7 @@ int main() {
     test_struct_packed h = {0};
     str_struct i = {0};
     enum enumeration k = enum_elem1;
+    test_union l = {0};
 
     return 0;
 }

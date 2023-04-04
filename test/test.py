@@ -144,6 +144,30 @@ class TestValueBuilder(unittest.TestCase):
                 for k, innermost_elem in enumerate(inner_elem):
                     self.assertEqual(int(innermost_elem), array[i][j][k])
 
+    def test_union(self):
+        size = gdb.lookup_type("test_union").sizeof
+
+        value = debugger.value("test_union", {"c": 8})
+        self.assertEqual(value.type.sizeof, size)
+        self.assertEqual(value["c"], 8)
+        self.assertEqual(value["t"]["c"], 8)
+        self.assertEqual(value["t"]["i"], 0)
+        self.assertEqual(value["l"], 8)
+
+        value = debugger.value("test_union", {"t": {"c": 1, "i": 2}, "l": 421})
+        self.assertEqual(value.type.sizeof, size)
+        self.assertEqual(value["c"], -91)
+        self.assertEqual(value["t"]["c"], -91)
+        self.assertEqual(value["t"]["i"], 0)
+        self.assertEqual(value["l"], 421)
+
+        value = debugger.value("test_union", {"l": 8, "t": {"c": 1, "i": 2}})
+        self.assertEqual(value.type.sizeof, size)
+        self.assertEqual(value["c"], 1)
+        self.assertEqual(value["t"]["c"], 1)
+        self.assertEqual(value["t"]["i"], 2)
+        self.assertEqual(value["l"], 8589934593)
+
     def test_struct(self):
         node_struct = {"value": 4, "next": None}
         val = debugger.value("node", node_struct)

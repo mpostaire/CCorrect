@@ -113,6 +113,25 @@ class StructNode(ValueNode):
             bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
 
 
+class UnionNode(ValueNode):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        fields = {f.name: f for f in self.type.fields()}
+        for name, value in self.value.items():
+            self.children.append(self.value_builder._parse_value(fields[name].type, value, self))
+
+    def to_bytes(self):
+        for elem in self.children:
+            obj = elem.to_bytes()
+
+        len_diff = self.type.sizeof - len(obj)
+        if len_diff > 0:
+            obj += bytearray(int(0).to_bytes(len_diff, sys.byteorder))
+
+        return obj
+
+
 class PointerNode(ValueNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -146,13 +165,23 @@ class ValueBuilder:
         self.allocated_addresses = set()
 
     def _parse_value(self, type, value, parent=None):
-        if type.code == gdb.TYPE_CODE_PTR:
+        # TODO structs with flexible array: need alloc sizeof(struct) + sizeof(flexible_array)
+        #       --> because it can only work by alloc, we must detect nested structs with flexible array
+        #           detection:
+        #               1. last member of struct is a flexible array? --> OK
+        #               2. last member of struct is a struct? --> go back to 1.
+        #       this means that such a struct can only be built with value_allocated()
+
+        type_code = type.strip_typedefs().code
+        if type_code == gdb.TYPE_CODE_PTR:
             return PointerNode(type, Ptr(0) if value is None else value, self, parent=parent)
         elif isinstance(value, (list, tuple)):
             return ArrayNode(type, value, self, parent=parent)
         elif isinstance(value, dict):
+            if type_code == gdb.TYPE_CODE_UNION:
+                return UnionNode(type, value, self, parent=parent)
             return StructNode(type, value, self, parent=parent)
-        elif type.code == gdb.TYPE_CODE_ENUM:
+        elif type_code == gdb.TYPE_CODE_ENUM:
             return ScalarNode(type.target(), value, self, parent=parent)
         else:
             return ScalarNode(type, value, self, parent=parent)
