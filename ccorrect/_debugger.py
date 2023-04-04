@@ -388,6 +388,8 @@ class Debugger(ValueBuilder):
                     lines[j] = f"    {lines[j]}"
                 variables_str = "\n".join(lines)
 
+                self.make_graph(variables)
+
             sal = frame.find_sal()
             if sal is None or sal.symtab is None:
                 filepath = ""
@@ -398,3 +400,34 @@ class Debugger(ValueBuilder):
             ret += f"#{i} {frame.name()}({arg_names}) at {filepath}:{line}\n{variables_str}\n"
 
         return ret
+
+
+    def make_graph(self, variables):
+        from graphviz import Digraph, nohtml
+
+        dot = Digraph(comment='Stack trace', graph_attr={"rankdir": "LR"}, node_attr={"shape": "record"})
+        names_nodes = []
+        for name, (value, is_argument) in variables.items():
+            tmp_value = value
+            if tmp_value.type.strip_typedefs().code == gdb.TYPE_CODE_PTR:
+                parent = f"Stack:id_{hex(tmp_value)}:e"
+                while tmp_value.type.strip_typedefs().code == gdb.TYPE_CODE_PTR:
+                    names_nodes.append(nohtml(f"<id_{hex(tmp_value)}>{name} = ({tmp_value.type}) {hex(tmp_value)}"))
+
+                    dot.node(f"val_{hex(tmp_value)}", f"({tmp_value.dereference().type}) " + tmp_value.dereference().format_string(summary=True))
+                    dot.edge(parent, f"val_{hex(tmp_value)}")
+
+                    try:
+                        parent = f"val_{hex(tmp_value)}"
+                        tmp_value = tmp_value.dereference()
+                    except gdb.MemoryError:
+                        break
+
+        dot.node("Stack", f"{'|'.join(names_nodes)}")
+
+        # for name, (value, _) in variables.items():
+        #     dot.node(f"val_{name}", value.format_string(summary=True))
+        #     dot.edge(f"Stack:id_{name}:e", f"val_{name}:val_{name}:s")
+
+        # Créer un diagramme en utilisant Graphviz
+        dot.render('stack_trace.gv', view=True)
