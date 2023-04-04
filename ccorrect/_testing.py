@@ -136,7 +136,6 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 raise e
             else:
                 _test_results[pb]["tests"][-1]["success"] = True
-                _test_results[pb]["success"] = True
             finally:
                 if pid is not None:
                     self._push_output()
@@ -238,7 +237,9 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None):
     total_sum_weights = 0
     for problem in _test_results.values():
         problem_sum_weights = 0
+        problem_success = True
         for t in problem["tests"]:
+            problem_success = problem_success and t["success"]
             if t["success"]:
                 succeeded += 1
                 total_score += t["weight"]
@@ -246,6 +247,8 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None):
 
             problem_sum_weights += t["weight"]
             total_sum_weights += t["weight"]
+
+        problem["success"] = problem_success
 
         if problem_sum_weights > 0:
             problem["score"] = round((problem["score"] / problem_sum_weights) * 100, 2)
