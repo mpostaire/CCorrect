@@ -3,11 +3,7 @@ import sys
 import os
 from contextlib import contextmanager
 from functools import wraps
-from ccorrect._parser import FuncCallParser
 from ccorrect._values import ValueBuilder
-
-class BannedFuncError(AssertionError):
-    pass
 
 
 class FuncStats:
@@ -237,7 +233,7 @@ class Debugger(ValueBuilder):
                 bp.delete()
 
     @ensure_none_debugging
-    def start(self, timeout=0, banned_functions=None):
+    def start(self, timeout=0):
         self.stats.clear()
 
         # enable debuginfod if possible
@@ -246,20 +242,13 @@ class Debugger(ValueBuilder):
         except gdb.error:
             print("debuginfod cannot be enabled", file=sys.stderr)
 
+        gdb.events.stop.connect(self.__stop_event_handler)
+        gdb.events.exited.connect(self.__exited_event_handler)
+
         # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
         gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
         gdb.execute("set environment TSAN_OPTIONS=log_path=tsan_log")
         gdb.execute(f"file {self._program}")  # load program
-
-        try:
-            self.__check_banned_functions(banned_functions)
-        except BannedFuncError as e:
-            gdb.execute("file")  # discard any info on the loaded program and the symbol table
-            raise e
-
-        gdb.events.stop.connect(self.__stop_event_handler)
-        gdb.events.exited.connect(self.__exited_event_handler)
-
         gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
         # create breakpoint after start command to avoid the address sanitizer setup
@@ -342,25 +331,6 @@ class Debugger(ValueBuilder):
             print(f"exit code: {event.exit_code}")
         else:
             print("exit code not available")
-
-    def __check_banned_functions(self, banned_functions):
-        if banned_functions is None:
-            return
-
-        if self.__main_source is None:
-            sal = gdb.decode_line("main")[1][0]
-            self.__main_source = sal.symtab.fullname()
-
-        func_calls = FuncCallParser(self.__main_source).parse()
-        found_banned_funcs = list(func_calls & set(banned_functions))
-
-        if len(found_banned_funcs) == 1:
-            msg = f"'{found_banned_funcs[0]}' is banned"
-            raise BannedFuncError(msg)
-        elif len(found_banned_funcs) > 1:
-            funcnames = [f"'{funcname}'" for funcname in found_banned_funcs]
-            msg = f"{', '.join(funcnames[:-1])} and {funcnames[-1]} are banned"
-            raise BannedFuncError(msg)
 
     def __frames(self, max_depth):
         frame = gdb.newest_frame()

@@ -16,6 +16,7 @@ A python module to write, grade and provide feedback for exercices in C using gd
 - [x] Make an API that makes gdb's API easier and an API for writing tests
     - [x] gdb.Value builder from python objects
         - [x] build scalars, structs, arrays
+        - [ ] build unions, enums
         - [ ] build stucts with flexible array
     - [x] call functions
     - [x] tests API

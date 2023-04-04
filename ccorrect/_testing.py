@@ -4,7 +4,7 @@ import gdb
 from functools import wraps
 from yaml import safe_dump as yaml_dump
 from ccorrect import Debugger
-from ccorrect._debugger import BannedFuncError
+from ccorrect._parser import FuncCallParser
 
 
 _test_results = {}
@@ -98,7 +98,7 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
             pass
 
 
-def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_functions=None):
+def test_metadata(problem=None, description=None, weight=1, timeout=0):
     assert weight >= 1
     assert timeout >= 0
 
@@ -129,11 +129,8 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_fu
 
             pid = None
             try:
-                pid = self.debugger.start(timeout=timeout, banned_functions=banned_functions)
+                pid = self.debugger.start(timeout=timeout)
                 func(self, *args, **kwargs)
-            except BannedFuncError as e:
-                self.push_info_msg(e)
-                raise self.failureException(e) from e
             except self.failureException as e:
                 self.push_info_msg(e)
                 raise e
@@ -158,17 +155,76 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0, banned_fu
         return decorator
 
 
-def run_tests(verbosity=0):
-    # TODO test_case_classes argument that is used to build test suites
-    #      --> only allow 'CCorrectTestCase' subclasses
+class BanFuncTestCase(unittest.TestCase):
+    longMessage = False
+    ban_functions = None
+    _found = []
 
+    def test_banned(self):
+        used_banned_funcs = self.__check_banned_funcs(self.ban_functions)
+        BanFuncTestCase._found = used_banned_funcs
+        msg = ""
+        if used_banned_funcs:
+            msg = f"Found banned functions: {', '.join(used_banned_funcs)}"
+        self.assertIsNone(used_banned_funcs, msg)
+
+    def __check_banned_funcs(self, banned):
+        if banned is None or "functions" not in banned or "sources" not in banned:
+            return None
+
+        func_calls = set()
+        for source in banned["sources"]:
+            func_calls.update(FuncCallParser(source).parse())
+
+        found = func_calls & set(banned["functions"])
+        return found if found else None
+
+
+def _run_ban_test(ban_functions, runner):
+    BanFuncTestCase.ban_functions = ban_functions
+    BanFuncTestCase._found = []
+    ban_suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(BanFuncTestCase)])
+    res = runner.run(ban_suite)
+    if res.failures:
+        with open("results.yml", "w") as f:
+            data = {
+                "summary": {
+                    "total": 1,
+                    "succeeded": 0,
+                    "failed": 1,
+                    "score": 0,
+                    "error": {
+                        "reason": "banned_functions",
+                        "data": BanFuncTestCase._found,
+                    }
+                }
+            }
+            yaml_dump(data=data, stream=f, sort_keys=False)
+        return True
+    return False
+
+
+def run_tests(test_cases=None, verbosity=0, ban_functions=None):
     try:
         os.remove("results.yml")
     except FileNotFoundError:
         pass
 
     _test_results.clear()
-    unittest.main(exit=False, verbosity=verbosity)
+
+    runner = unittest.TextTestRunner(verbosity=verbosity)
+
+    if _run_ban_test(ban_functions, runner):
+        return
+
+    if test_cases is None:
+        unittest.main(exit=False, verbosity=verbosity)
+    else:
+        suite = unittest.TestSuite()
+        for test_class in test_cases:
+            tests = unittest.defaultTestLoader.loadTestsFromTestCase(test_class)
+            suite.addTests(tests)
+        runner.run(suite)
 
     try:
         os.remove("stdout.txt")

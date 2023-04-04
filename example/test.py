@@ -1,11 +1,11 @@
 import sys
 
-sys.path.append("../")
+sys.path.insert(0, "../")
 
 import ccorrect
 
 
-class TestValueBuilder(ccorrect.CCorrectTestCase):
+class TestValueBuilder(ccorrect.TestCase):
     debugger = ccorrect.Debugger("main")
 
     def test_1(self):
