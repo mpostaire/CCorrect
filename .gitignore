@@ -1,13 +1,8 @@
-# *.o
 *
+!*/
 !*.*
 *.o
 *.yml
-!test
-!example
-!ccorrect
-!ccorrect/_utils
-!ccorrect/_utils/**
-!.github/**
 !Makefile
 .vscode
+__pycache__

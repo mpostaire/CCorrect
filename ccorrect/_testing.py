@@ -179,13 +179,13 @@ class BanFuncTestCase(unittest.TestCase):
         return found if found else None
 
 
-def _run_ban_test(ban_functions, runner):
+def _run_ban_test(ban_functions, runner, result_filepath):
     BanFuncTestCase.ban_functions = ban_functions
     BanFuncTestCase._found = []
     ban_suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(BanFuncTestCase)])
     res = runner.run(ban_suite)
     if res.failures:
-        with open("results.yml", "w") as f:
+        with open(result_filepath, "w") as f:
             data = {
                 "summary": {
                     "total": 1,
@@ -203,9 +203,9 @@ def _run_ban_test(ban_functions, runner):
     return False
 
 
-def run_tests(test_cases=None, verbosity=0, ban_functions=None):
+def run_tests(test_cases=None, verbosity=0, ban_functions=None, result_filepath="results.yml"):
     try:
-        os.remove("results.yml")
+        os.remove(result_filepath)
     except FileNotFoundError:
         pass
 
@@ -213,7 +213,7 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None):
 
     runner = unittest.TextTestRunner(verbosity=verbosity)
 
-    if _run_ban_test(ban_functions, runner):
+    if _run_ban_test(ban_functions, runner, result_filepath):
         return
 
     if test_cases is None:
@@ -239,6 +239,8 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None):
         problem_sum_weights = 0
         problem_success = True
         for t in problem["tests"]:
+            if "asan_log" in t and t["asan_log"]:
+                t["success"] = False
             problem_success = problem_success and t["success"]
             if t["success"]:
                 succeeded += 1
@@ -256,7 +258,7 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None):
     if total_sum_weights > 0:
         total_score /= total_sum_weights
 
-    with open("results.yml", "w") as f:
+    with open(result_filepath, "w") as f:
         data = {
             "summary": {
                 "total": total,

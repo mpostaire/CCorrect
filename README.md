@@ -24,13 +24,13 @@ A python module to write, grade and provide feedback for exercices in C using gd
     - [x] use libtsan's output
 - [x] Memleak detection (libasan)
 - [x] Inginious integration
-- [ ] CI
+- [x] CI
     - [x] unit tests value builder
     - [x] unit tests timeout
     - [x] unit tests function call, watch and fail
-    - [ ] unit tests for funccall parser
-    - [ ] unit tests catch errors (SIGSEGV, SIGFPE, double free)
-    - [ ] unit tests on different exercises (test on an expected results.yml)
+    - [x] unit tests for funccall parser
+    - [x] unit tests catch errors (SIGSEGV, SIGFPE, double free)
+    - [x] unit tests on different exercises (test on an expected results.yml)
 
 <!-- 
 check all if malloc, SIGALRM setter etc in CCorrect internals dont fail, raise exception if they do

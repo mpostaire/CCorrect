@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 
 
 setup(
@@ -8,7 +8,7 @@ setup(
     url="https://github.com/mpostaire/CCorrect",
     author="Maxime Postaire",
     license="GPL-3.0",
-    packages=find_packages(),
+    packages=["ccorrect"],
     include_package_data=True,
     install_requires=["pycparser>=2.21", "PyYAML>=6.0"]
 )
