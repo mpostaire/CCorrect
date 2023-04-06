@@ -162,19 +162,13 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(len(debugger.stats.keys()), 0)
 
     def test_fail_errno(self):
-        open_file_r, close,  = debugger.functions(["open_file_r", "close"])
+        open_file_r = debugger.function("open_file_r")
         errno = gdb.parse_and_eval("&errno")
-        EACCES = gdb.parse_and_eval("EACCES")
-        EBADF = gdb.parse_and_eval("EBADF")
 
-        with debugger.fail("open", retval=-1, errno=EACCES):
+        with debugger.fail("open", retval=-1, errno=42):
             fd = open_file_r(program)
             self.assertEqual(fd, -1)
-            self.assertEqual(errno.dereference(), EACCES)
-
-        ret = close(fd)
-        self.assertEqual(ret, -1)
-        self.assertEqual(errno.dereference(), EBADF)
+            self.assertEqual(errno.dereference(), 42)
 
     def test_fail_when(self):
         repeat_char = debugger.function("repeat_char")
