@@ -4,9 +4,9 @@ A python module to write, grade and provide feedback for exercices in C using gd
 
 ## Features
 
-- [ ] Programmable function failures (don't execute function: immediately return)
+- [x] Programmable function failures (don't execute function: immediately return)
     - [x] change return value
-    - [ ] change return args (pointer args)
+    - [x] change return args (pointer args)
     - [x] set errno
 - [x] Ban usage of some functions
 - [ ] Segfault crash report

@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <fcntl.h>
+#include <errno.h>
 #include <string.h>
 
 typedef struct {
@@ -84,6 +86,22 @@ void loop(void) {
 void test_free(void) {
     char *tmp = malloc(8);
     free(tmp);
+}
+
+void return_arg(test_struct **ts, int i) {
+    *ts = malloc(sizeof(test_struct));
+    (*ts)->c = i / 2;
+    (*ts)->i = i * 2;
+}
+
+int test_return_arg(int i) {
+    test_struct *ts;
+    return_arg(&ts, i);
+    return ts->c * ts->i;
+}
+
+int open_file_r(char *path) {
+    return open(path, O_RDONLY);
 }
 
 int main() {

@@ -39,12 +39,13 @@ class FuncBreakpoint(gdb.Breakpoint):
         try:
             frame = gdb.newest_frame()
             block = frame.block()
-            return tuple(symbol.value(frame) for symbol in block if symbol.is_argument)
+            return [symbol.value(frame) for symbol in block if symbol.is_argument]
         except RuntimeError:
             return None
 
     def stop(self):
         args = self.get_args()
+        stats = self.debugger.stats
 
         if self.location == "free":
             address = int(args[0])
@@ -55,18 +56,32 @@ class FuncBreakpoint(gdb.Breakpoint):
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
             if self.failure is None:
                 try:
-                    FuncFinishBreakpoint(self.debugger.stats, self.location)
+                    FuncFinishBreakpoint(stats, self.location)
                 except ValueError:
                     # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
                     pass
 
-            if self.location not in self.debugger.stats:
-                self.debugger.stats[self.location] = FuncStats(self.location, 1, [args], [])
+            if self.location not in stats:
+                stats[self.location] = FuncStats(self.location, 1, [args], [])
             else:
-                self.debugger.stats[self.location].called += 1
-                self.debugger.stats[self.location].args.append(args)
+                stats[self.location].called += 1
+                stats[self.location].args.append(args)
 
         if self.failure is not None:
+            if "when" in self.failure and self.failure["when"] is not None:
+                if "_when_count" not in self.failure:
+                    self.failure["_when_count"] = 0
+                    when_count = 0
+                else:
+                    when_count = self.failure["_when_count"]
+
+                self.failure["_when_count"] += 1
+
+                if when_count in self.failure["when"]:
+                    self.failure["when"].remove(when_count)
+                else:
+                    return False
+
             if "errno" in self.failure and self.failure["errno"] is not None:
                 try:
                     gdb.set_convenience_variable("__CCorrect_errno", self.failure["errno"])
@@ -74,12 +89,27 @@ class FuncBreakpoint(gdb.Breakpoint):
                 except gdb.error:
                     print("can't set errno", file=sys.stderr)
 
+            if "ret_args" in self.failure and self.failure["ret_args"] is not None:
+                inferior = gdb.selected_inferior()
+                for i, new in self.failure["ret_args"].items():
+                    old = args[i]
+                    if old.type.strip_typedefs().unqualified().code != gdb.TYPE_CODE_PTR:
+                        continue
+
+                    new_bytes = inferior.read_memory(new, new.type.sizeof).tobytes(order="A")
+                    inferior.write_memory(old, new_bytes, new.type.sizeof)
+
+                    if self.watch:
+                        stats[self.location].args[-1][i] = new
+
             if "return" in self.failure and self.failure["return"] is not None:
                 gdb.set_convenience_variable("__CCorrect_return_var", self.failure["return"])
                 if self.watch:
-                    self.debugger.stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
+                    stats[self.location].returns.append(gdb.convenience_variable('__CCorrect_return_var'))
                 gdb.execute("return $__CCorrect_return_var")
             else:
+                if self.watch:
+                    stats[self.location].returns.append(None)
                 gdb.execute("return")
 
         return False
@@ -168,6 +198,7 @@ class Debugger(ValueBuilder):
         """
         This cannot watch function calls that are directly called by the debugger/gdb
         """
+        # TODO functions can contain gdb.Value
         if not isinstance(functions, (list, tuple)):
             functions = [functions]
 
@@ -196,20 +227,40 @@ class Debugger(ValueBuilder):
 
     @contextmanager
     @ensure_self_debugging
-    # def fail(self, function, retval, args=None, errno=None, when=None):
-    def fail(self, function, retval):
-        # TODO third argument that is a set of numbers: {1, 2, 5} (1st, 2nd and 5th calls should fail, other shouldn't)
-        # TODO set errno
-        # TODO add unittests for errno and when
-        failure = {"return": retval}
-        # if errno is not None:
-        #     assert isinstance(errno, int) or (isinstance(errno, gdb.Value) and str(errno.type().strip_typedefs()) == "int")
-        #     failure["errno"] = errno
-        # if args is not None:
-        #     assert isinstance(args, (list, tuple))
-        #     failure["args"] = args
-        # if when is not None:
-        #     failure["when"] = set(when)
+    def fail(self, function, retval=None, ret_args=None, errno=None, when=None):
+        """
+        This cannot fail function calls that are directly called by the debugger/gdb
+        """
+        # TODO function can be a gdb.Value
+        failure = {}
+
+        if retval is not None:
+            if not isinstance(retval, gdb.Value):
+                retval = self.value(gdb.parse_and_eval(function).type.target(), retval)
+            failure["return"] = retval
+
+        if errno is not None:
+            assert isinstance(errno, int) or (isinstance(errno, gdb.Value) and str(errno.type.strip_typedefs().unqualified()) == "int")
+            failure["errno"] = errno
+
+        if ret_args is not None:
+            assert isinstance(ret_args, dict)
+
+            func = gdb.parse_and_eval(function)
+            parsed_ret_args = {}
+            func_type_fields = func.type.fields()
+            arg_types = [(func_type_fields[i].type, i) for i in ret_args.keys()]
+            for arg, (type, i) in zip(ret_args.values(), arg_types):
+                if isinstance(arg, FuncWrapper):
+                    arg = arg._value
+                elif not isinstance(arg, gdb.Value):
+                    arg = self.value(type, arg)
+                parsed_ret_args[i] = arg
+
+            failure["ret_args"] = parsed_ret_args
+
+        if when is not None:
+            failure["when"] = set(when)
 
         bp = self.__get_breakpoint(function)
         old_failure = None
@@ -281,6 +332,7 @@ class Debugger(ValueBuilder):
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
 
+    # TODO move function() and functions() to _values.py
     @ensure_self_debugging
     def function(self, funcname):
         return FuncWrapper(self, gdb.parse_and_eval(funcname))

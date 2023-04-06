@@ -18,7 +18,6 @@ class TestFunctions(unittest.TestCase):
         debugger.finish()
 
     def test_basic_call(self):
-        # TODO test return value as argument
         repeat_char, str_struct_name_len = debugger.functions(["repeat_char", "str_struct_name_len"])
 
         char = debugger.value("char", "c")
@@ -38,6 +37,13 @@ class TestFunctions(unittest.TestCase):
 
         ret = str_struct_name_len({"value": 42, "name": "Hello there"})
         self.assertEqual(ret, 11)
+
+    def test_call_return_args(self):
+        return_arg = debugger.function("return_arg")
+        value = debugger.pointer(debugger.pointer("test_struct", 0))
+        return_arg(value, 21)
+        self.assertEqual(value.dereference().dereference()["c"], 10)
+        self.assertEqual(value.dereference().dereference()["i"], 42)
 
     def test_watch(self):
         repeat_char = debugger.function("repeat_char")
@@ -69,8 +75,6 @@ class TestFunctions(unittest.TestCase):
 
         ret = repeat_char("c", 10)
         self.assertEqual(ret.string(), "c" * 10)
-
-        # TODO fail retval and errno from template
 
         NULL = debugger.pointer("void", 0)
         with debugger.fail("malloc", NULL):
@@ -156,6 +160,73 @@ class TestFunctions(unittest.TestCase):
         debugger.stats.clear()
         test_free()
         self.assertEqual(len(debugger.stats.keys()), 0)
+
+    def test_fail_errno(self):
+        open_file_r, close,  = debugger.functions(["open_file_r", "close"])
+        errno = gdb.parse_and_eval("&errno")
+        EACCES = gdb.parse_and_eval("EACCES")
+        EBADF = gdb.parse_and_eval("EBADF")
+
+        with debugger.fail("open", retval=-1, errno=EACCES):
+            fd = open_file_r(program)
+            self.assertEqual(fd, -1)
+            self.assertEqual(errno.dereference(), EACCES)
+
+        ret = close(fd)
+        self.assertEqual(ret, -1)
+        self.assertEqual(errno.dereference(), EBADF)
+
+    def test_fail_when(self):
+        repeat_char = debugger.function("repeat_char")
+        NULL = debugger.pointer("void", 0)
+
+        fail_when = [0, 1, 4, 7, 4, 2]
+        with debugger.fail("malloc", retval=NULL, when=fail_when):
+            for i in range(10):
+                ret = repeat_char("c", i)
+                if i in fail_when:
+                    self.assertEqual(ret, NULL)
+                else:
+                    self.assertEqual(ret.string(), "c" * i)
+
+        with debugger.fail("malloc", retval=NULL, when=fail_when):
+            for i in range(3):
+                ret = repeat_char("c", i)
+                if i in fail_when:
+                    self.assertEqual(ret, NULL)
+                else:
+                    self.assertEqual(ret.string(), "c" * i)
+
+        for i in range(7):
+            ret = repeat_char("c", i)
+            self.assertEqual(ret.string(), "c" * i)
+
+    def test_fail_return_args(self):
+        test_return_arg = debugger.function("test_return_arg")
+
+        ret = test_return_arg(2)
+        self.assertEqual(ret, 4)
+
+        with debugger.fail("return_arg", ret_args={0: {"i": 40,"c": 2}}):
+            ret = test_return_arg(2)
+            self.assertEqual(ret, 80)
+
+    def test_watch_fail_return_args(self):
+        test_return_arg = debugger.function("test_return_arg")
+
+        ret = test_return_arg(2)
+        self.assertEqual(ret, 4)
+
+        with debugger.watch("return_arg"):
+            with debugger.fail("return_arg", ret_args={0: {"i": 11,"c": 3}}):
+                ret = test_return_arg(2)
+                self.assertEqual(ret, 33)
+            self.assertEqual(debugger.stats["return_arg"].called, 1)
+            self.assertEqual(debugger.stats["return_arg"].returns[0], None)
+            self.assertEqual(len(debugger.stats["return_arg"].args[0]), 2)
+            self.assertEqual(debugger.stats["return_arg"].args[0][0]["i"], 11)
+            self.assertEqual(debugger.stats["return_arg"].args[0][0]["c"], 3)
+            self.assertEqual(debugger.stats["return_arg"].args[0][1], 2)
 
 
 class TestFunctionTimeout(unittest.TestCase):
