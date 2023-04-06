@@ -258,7 +258,7 @@ class Debugger(ValueBuilder):
         try:
             if free_allocated_values:
                 self.free_allocated_values()
-            self.__wait_leak_sanitizer()
+            self.__detach_and_wait_leak_sanitizer()
         except gdb.error:
             pass
 
@@ -282,7 +282,7 @@ class Debugger(ValueBuilder):
             return self.__breakpoints[function]
         return None
 
-    def __wait_leak_sanitizer(self):
+    def __detach_and_wait_leak_sanitizer(self):
         # detach inferior process to allow the leak sanitizer to work
         # https://stackoverflow.com/a/54373833
         pid = gdb.selected_inferior().pid
