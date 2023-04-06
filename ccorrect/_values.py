@@ -1,6 +1,7 @@
 import gdb
 import struct
 import sys
+from functools import wraps
 
 
 def gdb_array_iter(value):
@@ -14,6 +15,37 @@ def gdb_array_iter(value):
 def gdb_struct_iter(value):
     for f in value.type.fields():
         yield f.name, value[f.name]
+
+
+def ensure_self_debugging(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        current_id = gdb.convenience_variable("__CCorrect_debugging")
+        if isinstance(self, FuncWrapper):
+            self_id = self._valuebuilder._id
+        else:
+            self_id = self._id
+
+        if current_id is None:
+            raise RuntimeError("No program is being run by gdb")
+        if current_id != self_id:
+            raise RuntimeError(f"Another program is already being run by gdb (running: #{current_id}, self: #{self_id})")
+
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
+def ensure_none_debugging(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        current_id = gdb.convenience_variable("__CCorrect_debugging")
+        if current_id is not None:
+            raise RuntimeError(f"A program is already being run by gdb (running: #{current_id}, self: #{self._id})")
+
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Ptr(int):
@@ -160,9 +192,37 @@ class PointerNode(ValueNode):
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
 
 
+class FuncWrapper:
+    """
+    Extending gdb.Value doesn't always work depending on the gdb version so we make
+    a wrapper around a gdb.Value representing a function that parses template arguments.
+    """
+
+    def __init__(self, valuebuilder, *args, **kwargs):
+        self._valuebuilder = valuebuilder
+        self._value = gdb.Value(*args, **kwargs)
+
+    @ensure_self_debugging
+    def __call__(self, *args):
+        parsed_args = []
+        if args is not None:
+            arg_types = [field.type for field in self._value.type.fields()]
+            for arg, type in zip(args, arg_types):
+                if isinstance(arg, FuncWrapper):
+                    arg = arg._value
+                elif not isinstance(arg, gdb.Value):
+                    arg = self._valuebuilder.value(type, arg)
+                parsed_args.append(arg)
+        return self._value(*parsed_args)
+
+
 class ValueBuilder:
+    _id_counter = 0
+
     def __init__(self):
         self.allocated_addresses = set()
+        self._id = ValueBuilder._id_counter
+        ValueBuilder._id_counter += 1
 
     def _parse_value(self, type, value, parent=None):
         # TODO structs with flexible array: need alloc sizeof(struct) + sizeof(flexible_array)
@@ -206,6 +266,7 @@ class ValueBuilder:
         if level == 0:
             print("----------------")
 
+    @ensure_self_debugging
     def value(self, type, value):
         """
         Returns a gdb.Value constructed from a python variable
@@ -216,6 +277,7 @@ class ValueBuilder:
         obj, root_type = self._value_as_bytes(type, value)
         return gdb.Value(obj, root_type)
 
+    @ensure_self_debugging
     def value_allocated(self, type, value):
         """
         Returns a gdb.Value pointer to value (contents are allocated in the inferior's memory)
@@ -237,18 +299,21 @@ class ValueBuilder:
         else:
             return pointer.cast(root_type.pointer())
 
+    @ensure_self_debugging
     def string(self, str):
         """
         Helper to create a string as a gdb.value
         """
         return self.value("char", [*str, '\0'])
 
+    @ensure_self_debugging
     def string_allocated(self, str):
         """
         Helper to create a string as a gdb.value (contents allocated in the inferior's memory)
         """
         return self.value_allocated("char", [*str, '\0'])
 
+    @ensure_self_debugging
     def pointer(self, value_or_type, value=None):
         if value is None:
             value = value_or_type
@@ -260,6 +325,15 @@ class ValueBuilder:
         type = gdb.lookup_type(value_or_type).pointer()
         return self.value(type, Ptr(value))
 
+    @ensure_self_debugging
+    def function(self, funcname):
+        return FuncWrapper(self, gdb.parse_and_eval(funcname))
+
+    @ensure_self_debugging
+    def functions(self, funcnames):
+        return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
+
+    @ensure_self_debugging
     def free_allocated_values(self):
         # copy self.allocated_addresses to not confuse the iterator as self.allocated_addresses is updated as addresses are freed
         allocated_addresses = self.allocated_addresses.copy()

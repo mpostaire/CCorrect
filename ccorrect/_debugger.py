@@ -2,8 +2,7 @@ import gdb
 import sys
 import os
 from contextlib import contextmanager
-from functools import wraps
-from ccorrect._values import ValueBuilder
+from ccorrect._values import ValueBuilder, FuncWrapper, ensure_none_debugging, ensure_self_debugging
 
 
 class FuncStats:
@@ -115,75 +114,15 @@ class FuncBreakpoint(gdb.Breakpoint):
         return False
 
 
-def ensure_self_debugging(func):
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        current_id = gdb.convenience_variable("__CCorrect_debugging")
-        if isinstance(self, FuncWrapper):
-            self_id = self._debugger._id
-        else:
-            self_id = self._id
-
-        if current_id is None:
-            raise RuntimeError("No program is being run by gdb")
-        if current_id != self_id:
-            raise RuntimeError(f"Another program is already being run by gdb (running: #{current_id}, self: #{self_id})")
-
-        return func(self, *args, **kwargs)
-
-    return wrapper
-
-
-def ensure_none_debugging(func):
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        current_id = gdb.convenience_variable("__CCorrect_debugging")
-        if current_id is not None:
-            raise RuntimeError(f"A program is already being run by gdb (running: #{current_id}, self: #{self._id})")
-
-        return func(self, *args, **kwargs)
-
-    return wrapper
-
-
-class FuncWrapper:
-    """
-    Extending gdb.Value doesn't always work depending on the gdb version so we make
-    a wrapper around a gdb.Value representing a function that parses template arguments.
-    """
-
-    def __init__(self, debugger, *args, **kwargs):
-        self._debugger = debugger
-        self._value = gdb.Value(*args, **kwargs)
-
-    @ensure_self_debugging
-    def __call__(self, *args):
-        parsed_args = []
-        if args is not None:
-            arg_types = [field.type for field in self._value.type.fields()]
-            for arg, type in zip(args, arg_types):
-                if isinstance(arg, FuncWrapper):
-                    arg = arg._value
-                elif not isinstance(arg, gdb.Value):
-                    arg = self._debugger.value(type, arg)
-                parsed_args.append(arg)
-        return self._value(*parsed_args)
-
-
 class Debugger(ValueBuilder):
-    _id_counter = 0
-
     def __init__(self, program, backtrace_max_depth=8, save_output=True, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
         self.backtrace_max_depth = backtrace_max_depth
-        self._id = Debugger._id_counter
-        Debugger._id_counter += 1
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
         self.__breakpoints = {}
-        self.__main_source = None
 
     def __enter__(self):
         pid = self.start()
@@ -331,15 +270,6 @@ class Debugger(ValueBuilder):
         self.__breakpoints.clear()
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
-
-    # TODO move function() and functions() to _values.py
-    @ensure_self_debugging
-    def function(self, funcname):
-        return FuncWrapper(self, gdb.parse_and_eval(funcname))
-
-    @ensure_self_debugging
-    def functions(self, funcnames):
-        return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
     @ensure_self_debugging
     def thread_count(self):
