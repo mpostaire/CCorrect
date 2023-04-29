@@ -1,4 +1,5 @@
 import os
+import re
 import unittest
 import gdb
 from functools import wraps
@@ -77,7 +78,12 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
         asan_log_path = f"asan_log.{pid}"
         try:
             with open(asan_log_path, "r") as f:
-                _test_results[self.__current_problem]["tests"][-1]["asan_log"] = f.read()
+                asan_logs = f.read()
+                _test_results[self.__current_problem]["tests"][-1]["asan_log"] = asan_logs
+                # parse asan output to push tags
+                reason = re.match(".*ERROR: AddressSanitizer: ([^ ]+)", asan_logs.splitlines()[1])
+                if reason is not None:
+                    self.push_tag(reason.group(1))
             os.remove(asan_log_path)
         except FileNotFoundError:
             pass
@@ -85,7 +91,12 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
         tsan_log_path = f"tsan_log.{pid}"
         try:
             with open(tsan_log_path, "r") as f:
-                _test_results[self.__current_problem]["tests"][-1]["tsan_log"] = f.read()
+                tsan_logs = f.read()
+                _test_results[self.__current_problem]["tests"][-1]["tsan_log"] = tsan_logs
+                # parse tsan output to push tags
+                reason = re.match(".*ERROR: ThreadSanitizer: ([^ ]+)", tsan_logs.splitlines()[1])
+                if reason is not None:
+                    self.push_tag(reason.group(1))
             os.remove(tsan_log_path)
         except FileNotFoundError:
             pass
