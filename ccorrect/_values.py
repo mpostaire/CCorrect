@@ -48,6 +48,18 @@ def ensure_none_debugging(func):
     return wrapper
 
 
+def type_is_signed(type):
+    try:
+        return type.is_signed
+    except AttributeError:
+        # gdb < 12.1: gdb.Type has no 'is_signed' attribute
+        type = type.strip_typedefs().unqualified()
+        if type.name is not None:
+            return not type.name.startswith("unsigned")
+        else:
+            return False
+
+
 class Ptr(int):
     def __init__(self, value):
         if value < 0:
@@ -78,14 +90,8 @@ class ScalarNode(ValueNode):
         if isinstance(self.value, str):
             self.value = ord(self.value[0])
 
-        try:
-            is_signed = self.type.is_signed
-        except AttributeError:
-            # gdb < 12.1: gdb.Type has no 'is_signed' attribute
-            is_signed = not type.name.startswith("unsigned")
-
         # Using this method instead of struct.pack() is easier (especially if it's a typedef): no need to build a format string matching the type
-        return bytearray(self.value.to_bytes(self.type.sizeof, sys.byteorder, signed=is_signed))
+        return bytearray(self.value.to_bytes(self.type.sizeof, sys.byteorder, signed=type_is_signed(type)))
 
 
 class ArrayNode(ValueNode):
@@ -189,7 +195,7 @@ class PointerNode(ValueNode):
             address = int(pointer)
             self.value_builder.allocated_addresses.add(address)
 
-        return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=self.type.is_signed))
+        return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=type_is_signed(self.type)))
 
 
 class FuncWrapper:
