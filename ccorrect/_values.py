@@ -221,6 +221,9 @@ class FuncWrapper:
                 parsed_args.append(arg)
         return self._value(*parsed_args)
 
+    def __str__(self):
+        return str(self._value)
+
 
 class ValueBuilder:
     _id_counter = 0
@@ -237,6 +240,7 @@ class ValueBuilder:
         #               1. last member of struct is a flexible array? --> OK
         #               2. last member of struct is a struct? --> go back to 1.
         #       this means that such a struct can only be built with value_allocated()
+        #       because fo this, this API must be tweaked to only build values in the inferior's heap
 
         type_code = type.strip_typedefs().code
         if type_code == gdb.TYPE_CODE_PTR:
