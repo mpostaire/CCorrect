@@ -6,11 +6,11 @@ from ccorrect._values import ValueBuilder, FuncWrapper, ensure_none_debugging, e
 
 
 class FuncStats:
-    def __init__(self, name: str, called: int, args: list, returns: list):
+    def __init__(self, name: str):
         self.name = name
-        self.called = called
-        self.args = args
-        self.returns = returns
+        self.called = 0
+        self.args = []
+        self.returns = []
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name='{self.name}', called={self.called}, args={self.args}, returns={self.returns})"
@@ -60,11 +60,8 @@ class FuncBreakpoint(gdb.Breakpoint):
                     # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
                     pass
 
-            if self.location not in stats:
-                stats[self.location] = FuncStats(self.location, 1, [args], [])
-            else:
-                stats[self.location].called += 1
-                stats[self.location].args.append(args)
+            stats[self.location].called += 1
+            stats[self.location].args.append(args)
 
         if self.failure is not None:
             if "when" in self.failure and self.failure["when"] is not None:
@@ -154,6 +151,9 @@ class Debugger(ValueBuilder):
                 # start watching if there is already a breakpoint at this location but it isn't watching
                 bp.watch = True
                 cleanup_watch.append(bp)
+            
+            if func not in self.stats:
+                self.stats[func] = FuncStats(func)
 
         try:
             yield
