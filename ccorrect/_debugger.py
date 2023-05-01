@@ -42,6 +42,13 @@ class FuncBreakpoint(gdb.Breakpoint):
         except RuntimeError:
             return None
 
+    def set_finish_breakpoint(self):
+        try:
+            FuncFinishBreakpoint(self.debugger.stats, self.location)
+        except ValueError:
+            # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
+            pass
+
     def stop(self):
         args = self.get_args()
         stats = self.debugger.stats
@@ -54,11 +61,7 @@ class FuncBreakpoint(gdb.Breakpoint):
         if self.watch:
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
             if self.failure is None:
-                try:
-                    FuncFinishBreakpoint(stats, self.location)
-                except ValueError:
-                    # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
-                    pass
+                self.set_finish_breakpoint()
 
             stats[self.location].called += 1
             stats[self.location].args.append(args)
@@ -76,6 +79,8 @@ class FuncBreakpoint(gdb.Breakpoint):
                 if when_count in self.failure["when"]:
                     self.failure["when"].remove(when_count)
                 else:
+                    if self.watch:
+                        self.set_finish_breakpoint()
                     return False
 
             if "errno" in self.failure and self.failure["errno"] is not None:

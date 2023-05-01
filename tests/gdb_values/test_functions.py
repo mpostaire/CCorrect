@@ -175,13 +175,18 @@ class TestFunctions(unittest.TestCase):
         NULL = debugger.pointer("void", 0)
 
         fail_when = [0, 1, 4, 7, 4, 2]
-        with debugger.fail("malloc", retval=NULL, when=fail_when):
+        with debugger.watch("malloc"), debugger.fail("malloc", retval=NULL, when=fail_when):
             for i in range(10):
                 ret = repeat_char("c", i)
                 if i in fail_when:
                     self.assertEqual(ret, NULL)
                 else:
                     self.assertEqual(ret.string(), "c" * i)
+
+        self.assertEqual(debugger.stats["malloc"].called, 10)
+        self.assertEqual(len(debugger.stats["malloc"].returns), 10)
+        self.assertEqual(len(debugger.stats["malloc"].args), 10)
+        self.assertTrue(all(args[0] == i + 1 for i, args in enumerate(debugger.stats["malloc"].args)))
 
         with debugger.fail("malloc", retval=NULL, when=fail_when):
             for i in range(3):
