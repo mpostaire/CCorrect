@@ -53,7 +53,7 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(len(debugger.stats.keys()), 0)
 
         with debugger.watch("malloc"):
-            repeat_char("c", 5)
+            ret = repeat_char("c", 5)
         self.assertEqual(len(debugger.stats.keys()), 1)
         self.assertEqual(debugger.stats["malloc"].called, 1)
         self.assertEqual(len(debugger.stats["malloc"].args), 1)
@@ -61,14 +61,18 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(debugger.stats["malloc"].args[0][0], 6)
         self.assertEqual(len(debugger.stats["malloc"].returns), 1)
         self.assertGreater(debugger.stats["malloc"].returns[0], 0)
+        self.assertTrue(debugger.malloced(ret))
+        self.assertEqual(debugger.allocated_size(), 6)
 
         repeat_char("c", 2)
         self.assertEqual(len(debugger.stats.keys()), 1)
 
         debugger.stats.clear()
         with debugger.watch("malloc"), debugger.watch("malloc"):
-            repeat_char("c", 5)
+            ret = repeat_char("c", 5)
         self.assertEqual(debugger.stats["malloc"].called, 1)
+        self.assertTrue(debugger.malloced(ret))
+        self.assertEqual(debugger.allocated_size(), 12)
 
     def test_fail(self):
         repeat_char, str_struct_name_len = debugger.functions(["repeat_char", "str_struct_name_len"])
@@ -108,18 +112,24 @@ class TestFunctions(unittest.TestCase):
                 self.assertEqual(debugger.stats["malloc"].called, 1)
                 self.assertEqual(len(debugger.stats["malloc"].args), 1)
                 self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+                self.assertFalse(debugger.malloced(ret))
+                self.assertEqual(debugger.allocated_size(), 0)
 
             ret = repeat_char("c", 10)
             self.assertEqual(ret.string(), "c" * 10)
             self.assertEqual(debugger.stats["malloc"].called, 2)
             self.assertEqual(len(debugger.stats["malloc"].args), 2)
             self.assertEqual(len(debugger.stats["malloc"].returns), 2)
+            self.assertTrue(debugger.malloced(ret))
+            self.assertEqual(debugger.allocated_size(), 11)
 
         ret = repeat_char("c", 10)
         self.assertEqual(ret.string(), "c" * 10)
         self.assertEqual(debugger.stats["malloc"].called, 2)
         self.assertEqual(len(debugger.stats["malloc"].args), 2)
         self.assertEqual(len(debugger.stats["malloc"].returns), 2)
+        self.assertFalse(debugger.malloced(ret))
+        self.assertEqual(debugger.allocated_size(), 11)
 
     def test_fail_watch(self):
         repeat_char = debugger.function("repeat_char")
@@ -131,18 +141,24 @@ class TestFunctions(unittest.TestCase):
                 self.assertEqual(debugger.stats["malloc"].called, 1)
                 self.assertEqual(len(debugger.stats["malloc"].args), 1)
                 self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+                self.assertFalse(debugger.malloced(ret))
+                self.assertEqual(debugger.allocated_size(), 0)
 
             ret = repeat_char("c", 10)
             self.assertEqual(ret, 0)
             self.assertEqual(debugger.stats["malloc"].called, 1)
             self.assertEqual(len(debugger.stats["malloc"].args), 1)
             self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+            self.assertFalse(debugger.malloced(ret))
+            self.assertEqual(debugger.allocated_size(), 0)
 
         ret = repeat_char("c", 10)
         self.assertEqual(ret.string(), "c" * 10)
         self.assertEqual(debugger.stats["malloc"].called, 1)
         self.assertEqual(len(debugger.stats["malloc"].args), 1)
         self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+        self.assertFalse(debugger.malloced(ret))
+        self.assertEqual(debugger.allocated_size(), 0)
 
     def test_watch_free(self):
         test_free = debugger.function("test_free")
@@ -156,10 +172,39 @@ class TestFunctions(unittest.TestCase):
             self.assertEqual(len(debugger.stats["free"].args), 1)
             self.assertEqual(len(debugger.stats["free"].args[0]), 1)
             self.assertGreater(debugger.stats["free"].args[0][0], 0)
+            self.assertEqual(debugger.allocated_size(), 0)
 
         debugger.stats.clear()
         test_free()
         self.assertEqual(len(debugger.stats.keys()), 0)
+
+    def test_malloced_free(self):
+        repeat_char, wrap_free = debugger.functions(["repeat_char", "wrap_free"])
+        with debugger.watch("malloc"):
+            ret = repeat_char("c", 10)
+            self.assertGreater(ret, 0)
+            self.assertEqual(debugger.stats["malloc"].called, 1)
+            self.assertEqual(len(debugger.stats["malloc"].args), 1)
+            self.assertEqual(len(debugger.stats["malloc"].returns), 1)
+            self.assertTrue(debugger.malloced(ret))
+            self.assertEqual(debugger.allocated_size(), 11)
+
+        wrap_free(ret)
+        self.assertTrue(debugger.malloced(ret))
+        self.assertEqual(debugger.allocated_size(), 11)
+
+        with debugger.watch(["malloc", "free"]):
+            ret = repeat_char("c", 10)
+            self.assertGreater(ret, 0)
+            self.assertEqual(debugger.stats["malloc"].called, 2)
+            self.assertEqual(len(debugger.stats["malloc"].args), 2)
+            self.assertEqual(len(debugger.stats["malloc"].returns), 2)
+            self.assertTrue(debugger.malloced(ret))
+            self.assertEqual(debugger.allocated_size(), 22)
+
+            wrap_free(ret)
+            self.assertFalse(debugger.malloced(ret))
+            self.assertEqual(debugger.allocated_size(), 11)
 
     def test_fail_errno(self):
         open_file_r = debugger.function("open_file_r")
@@ -174,14 +219,19 @@ class TestFunctions(unittest.TestCase):
         repeat_char = debugger.function("repeat_char")
         NULL = debugger.pointer("void", 0)
 
+        size_count = 0
         fail_when = [0, 1, 4, 7, 4, 2]
         with debugger.watch("malloc"), debugger.fail("malloc", retval=NULL, when=fail_when):
             for i in range(10):
                 ret = repeat_char("c", i)
                 if i in fail_when:
                     self.assertEqual(ret, NULL)
+                    self.assertFalse(debugger.malloced(size_count))
                 else:
                     self.assertEqual(ret.string(), "c" * i)
+                    self.assertTrue(debugger.malloced(ret))
+                    size_count += i + 1
+                    self.assertEqual(debugger.allocated_size(), size_count)
 
         self.assertEqual(debugger.stats["malloc"].called, 10)
         self.assertEqual(len(debugger.stats["malloc"].returns), 10)

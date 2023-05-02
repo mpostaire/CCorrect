@@ -88,6 +88,10 @@ void test_free(void) {
     free(tmp);
 }
 
+void wrap_free(void *ptr) {
+    free(ptr);
+}
+
 void return_arg(test_struct **ts, int i) {
     *ts = malloc(sizeof(test_struct));
     (*ts)->c = i / 2;

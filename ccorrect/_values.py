@@ -193,7 +193,7 @@ class PointerNode(ValueNode):
             inferior.write_memory(pointer, obj)
 
             address = int(pointer)
-            self.value_builder.allocated_addresses.add(address)
+            self.value_builder._allocated_addresses.add(address)
 
         return bytearray(address.to_bytes(self.type.sizeof, sys.byteorder, signed=type_is_signed(self.type)))
 
@@ -229,7 +229,7 @@ class ValueBuilder:
     _id_counter = 0
 
     def __init__(self):
-        self.allocated_addresses = set()
+        self._allocated_addresses = set()
         self._id = ValueBuilder._id_counter
         ValueBuilder._id_counter += 1
 
@@ -302,7 +302,7 @@ class ValueBuilder:
         inferior = gdb.selected_inferior()
         inferior.write_memory(pointer, obj)
 
-        self.allocated_addresses.add(int(pointer))
+        self._allocated_addresses.add(int(pointer))
 
         if root_type.code == gdb.TYPE_CODE_ARRAY:
             return pointer.cast(root_type.target().pointer())
@@ -345,8 +345,8 @@ class ValueBuilder:
 
     @ensure_self_debugging
     def free_allocated_values(self):
-        # copy self.allocated_addresses to not confuse the iterator as self.allocated_addresses is updated as addresses are freed
-        allocated_addresses = self.allocated_addresses.copy()
+        # copy self._allocated_addresses to not confuse the iterator as self._allocated_addresses is updated as addresses are freed
+        allocated_addresses = self._allocated_addresses.copy()
         for address in allocated_addresses:
             gdb.parse_and_eval(f"free({address})")
         allocated_addresses.clear()

@@ -5,6 +5,42 @@ from contextlib import contextmanager
 from ccorrect._values import ValueBuilder, FuncWrapper, ensure_none_debugging, ensure_self_debugging
 
 
+def malloc_tracker(debugger, return_value, location):
+    start = return_value
+    size = debugger.stats[location].args[-1][0]
+    if start > 0:
+        debugger._allocated_regions.append((start, size))
+
+
+def calloc_tracker(debugger, return_value, location):
+    start = return_value
+    size = debugger.stats[location].args[-1][0] * debugger.stats[location].args[-1][1]
+    if start > 0:
+        debugger._allocated_regions.append((start, size))
+
+
+def realloc_tracker(debugger, return_value, location):
+    new_start = return_value
+    new_size = debugger.stats[location].args[-1][1]
+    target = debugger.stats[location].args[-1][0]
+    for i, (start, _) in enumerate(debugger._allocated_regions):
+        if start == target:
+            debugger._allocated_regions[i] = (new_start, new_size)
+
+
+def free_tracker(debugger, _, location):
+    target = debugger.stats[location].args[-1][0]
+    debugger._allocated_regions = [(start, size) for start, size in debugger._allocated_regions if start != target]
+
+
+alloc_trackers = {
+    "malloc": malloc_tracker,
+    "calloc": calloc_tracker,
+    "realloc": realloc_tracker,
+    "free": free_tracker
+}
+
+
 class FuncStats:
     def __init__(self, name: str):
         self.name = name
@@ -17,13 +53,17 @@ class FuncStats:
 
 
 class FuncFinishBreakpoint(gdb.FinishBreakpoint):
-    def __init__(self, stats, func_location, *args, **kwargs):
+    def __init__(self, debugger, func_location, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.stats = stats
+        self.debugger = debugger
         self.func_location = func_location
 
     def stop(self):
-        self.stats[self.func_location].returns.append(self.return_value)
+        self.debugger.stats[self.func_location].returns.append(self.return_value)
+
+        if self.func_location in alloc_trackers:
+            alloc_trackers[self.func_location](self.debugger, self.return_value, self.func_location)
+
         return False
 
 
@@ -44,7 +84,7 @@ class FuncBreakpoint(gdb.Breakpoint):
 
     def set_finish_breakpoint(self):
         try:
-            FuncFinishBreakpoint(self.debugger.stats, self.location)
+            FuncFinishBreakpoint(self.debugger, self.location)
         except ValueError:
             # print(f"Cannot set finish breakpoint for '{self.location}'", file=sys.stderr)
             pass
@@ -55,8 +95,8 @@ class FuncBreakpoint(gdb.Breakpoint):
 
         if self.location == "free":
             address = int(args[0])
-            if address in self.debugger.allocated_addresses:
-                self.debugger.allocated_addresses.remove(address)
+            if address in self.debugger._allocated_addresses:
+                self.debugger._allocated_addresses.remove(address)
 
         if self.watch:
             # if we can't set finish breakpoint, it's because the frame must be a dummy frame (meaning it's called by gdb so we don't want to keep stats of it)
@@ -124,6 +164,7 @@ class Debugger(ValueBuilder):
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
         self._save_output = save_output
+        self._allocated_regions = []
         self.__breakpoints = {}
 
     def __enter__(self):
@@ -230,6 +271,7 @@ class Debugger(ValueBuilder):
     @ensure_none_debugging
     def start(self, timeout=0):
         self.stats.clear()
+        self._allocated_regions.clear()
 
         # enable debuginfod if possible
         try:
@@ -279,6 +321,18 @@ class Debugger(ValueBuilder):
     @ensure_self_debugging
     def thread_count(self):
         return int(gdb.convenience_variable("_inferior_thread_count"))
+
+    @ensure_self_debugging
+    def malloced(self, ptr):
+        """is ptr allocated (this only keep track of allocated memory when malloc/calloc/realloc/free are watched)"""
+        for start, size in self._allocated_regions:
+            if ptr >= start and ptr <= start + size:
+                return True
+        return False
+
+    def allocated_size(self):
+        """get total allocated memory (this only keep track of allocated memory when malloc/calloc/realloc/free are watched)"""
+        return sum(size for _, size in self._allocated_regions)
 
     def __get_breakpoint(self, function):
         if function == "free":
