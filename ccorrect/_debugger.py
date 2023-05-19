@@ -324,14 +324,22 @@ class Debugger(ValueBuilder):
 
     @ensure_self_debugging
     def malloced(self, ptr):
-        """is ptr allocated (this only keep track of allocated memory when malloc/calloc/realloc/free are watched)"""
+        """
+        Check if a given memory address is within one of the allocated regions (this only keep track of allocated memory when malloc/calloc/realloc/free are watched).
+        """
         for start, size in self._allocated_regions:
             if ptr >= start and ptr <= start + size:
                 return True
         return False
 
+    @ensure_self_debugging
     def allocated_size(self):
-        """get total allocated memory (this only keep track of allocated memory when malloc/calloc/realloc/free are watched)"""
+        """
+        Get the total size of all allocated memory regions (this only keep track of allocated memory when malloc/calloc/realloc/free are watched).
+
+        Returns:
+            int: The total size of all allocated memory regions.
+        """
         return sum(size for _, size in self._allocated_regions)
 
     def __get_breakpoint(self, function):
