@@ -175,7 +175,10 @@ class PointerNode(ValueNode):
         super().__init__(*args, **kwargs)
         if self.value is not None and not isinstance(self.value, Ptr):
             if isinstance(self.value, str):
-                for elem in self.value + chr(0):
+                self.value = tuple(self.value + chr(0))
+
+            if isinstance(self.value, (list, tuple)):
+                for elem in self.value:
                     self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
             else:
                 self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]

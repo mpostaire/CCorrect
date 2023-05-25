@@ -63,6 +63,13 @@ typedef union {
     long l;
 } test_union;
 
+int test_struct_mean(test_struct array[], size_t len) {
+    int total = 0;
+    for (int i = 0; i < len; i++)
+        total += array[i].i;
+    return total / len;
+}
+
 size_t str_struct_name_len(str_struct *s) {
     return strlen(s->name);
 }
