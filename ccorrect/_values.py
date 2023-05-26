@@ -1,6 +1,7 @@
 import gdb
 import struct
 import sys
+import math
 from functools import wraps
 
 
@@ -148,6 +149,7 @@ class StructNode(ValueNode):
 
         if len(bytes) % alignment != 0:
             padding = abs(alignment - len(bytes))
+            padding = (math.ceil(len(bytes) / alignment) * alignment) - len(bytes)  # difference of 'len(bytes)' and its nearest, greater multiple of 'alignment'
             bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
 
 
