@@ -25,8 +25,8 @@ class TestFunctions(unittest.TestCase):
         ret = repeat_char(char, count)
         self.assertEqual(ret.string(), "c" * 10)
 
-        value = debugger.value_allocated("str_struct", {"value": 42, "name": "Hello there"})
-        ret = str_struct_name_len(value)
+        value = debugger.value("str_struct", {"value": 42, "name": "Hello there"})
+        ret = str_struct_name_len(debugger.pointer(value))
         self.assertEqual(ret, 11)
 
     def test_call_generate_arg_from_template(self):

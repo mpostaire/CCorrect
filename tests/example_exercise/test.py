@@ -48,7 +48,7 @@ class TestExampleExercise(ccorrect.TestCase):
     )
     def test_pop(self):
         list_template = {"value": 1, "next": {"value": 2, "next": None}}
-        list_ptr = self.debugger.pointer(self.debugger.value_allocated("node", list_template))
+        list_ptr = self.debugger.pointer(self.debugger.pointer(self.debugger.value("node", list_template)))
         pop = self.debugger.function("pop")
 
         with self.debugger.watch("free"):
@@ -65,9 +65,6 @@ class TestExampleExercise(ccorrect.TestCase):
 
             self.assertEqual(self.debugger.stats["free"].called, 2)
             self.assertEqual(pop_ret, 2)
-
-        # create_thread = self.debugger.function("create_thread")
-        # create_thread()
 
     def test_sigfpe(self):
         sigfpe = self.debugger.function("sigfpe")

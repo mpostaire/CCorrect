@@ -20,56 +20,73 @@ class TestValues(unittest.TestCase):
     def test_basic_types(self):
         val = debugger.value("char", "c")
         self.assertEqual(chr(val), "c")
+        self.assertEqual(str(gdb.lookup_type("char")), str(val.type))
 
         val = debugger.value("unsigned int", 42)
         self.assertEqual(int(val), 42)
+        self.assertEqual(str(gdb.lookup_type("unsigned int")), str(val.type))
 
         val = debugger.value("short", -42)
         self.assertEqual(int(val), -42)
+        self.assertEqual(str(gdb.lookup_type("short")), str(val.type))
 
         val = debugger.value("int", -42)
         self.assertEqual(int(val), -42)
+        self.assertEqual(str(gdb.lookup_type("int")), str(val.type))
 
         val = debugger.value("long", -42)
         self.assertEqual(int(val), -42)
+        self.assertEqual(str(gdb.lookup_type("long")), str(val.type))
 
         val = debugger.value("float", 42.42)
         self.assertEqual(float(val), 42.41999816894531)
+        self.assertEqual(str(gdb.lookup_type("float")), str(val.type))
 
         val = debugger.value("double", 42.42)
         self.assertEqual(float(val), 42.42)
+        self.assertEqual(str(gdb.lookup_type("double")), str(val.type))
 
         val = debugger.value("enum enumeration", 1)
         self.assertEqual(int(val), 1)
+        self.assertEqual(str(gdb.lookup_type("enum enumeration").target()), str(val.type))
 
-    def test_basic_allocated_types(self):
-        val = debugger.value_allocated("char", "c")
+    def test_basic_pointer_types(self):
+        val = debugger.pointer(debugger.value("char", "c"))
+        self.assertEqual(str(gdb.lookup_type("char").pointer()), str(val.type))
         self.assertEqual(chr(val.dereference()), "c")
 
-        val = debugger.value_allocated("unsigned int", 42)
+        val = debugger.pointer(debugger.value("unsigned int", 42))
+        self.assertEqual(str(gdb.lookup_type("unsigned int").pointer()), str(val.type))
         self.assertEqual(int(val.dereference()), 42)
 
-        val = debugger.value_allocated("short", -42)
+        val = debugger.pointer(debugger.value("short", -42))
+        self.assertEqual(str(gdb.lookup_type("short").pointer()), str(val.type))
         self.assertEqual(int(val.dereference()), -42)
 
-        val = debugger.value_allocated("int", -42)
+        val = debugger.pointer(debugger.value("int", -42))
+        self.assertEqual(str(gdb.lookup_type("int").pointer()), str(val.type))
         self.assertEqual(int(val.dereference()), -42)
 
-        val = debugger.value_allocated("long", -42)
+        val = debugger.pointer(debugger.value("long", -42))
+        self.assertEqual(str(gdb.lookup_type("long").pointer()), str(val.type))
         self.assertEqual(int(val.dereference()), -42)
 
-        val = debugger.value_allocated("float", 42.42)
+        val = debugger.pointer(debugger.value("float", 42.42))
+        self.assertEqual(str(gdb.lookup_type("float").pointer()), str(val.type))
         self.assertEqual(float(val.dereference()), 42.41999816894531)
 
-        val = debugger.value_allocated("double", 42.42)
+        val = debugger.pointer(debugger.value("double", 42.42))
+        self.assertEqual(str(gdb.lookup_type("double").pointer()), str(val.type))
         self.assertEqual(float(val.dereference()), 42.42)
 
-        val = debugger.value_allocated("enum enumeration", 1)
+        val = debugger.pointer(debugger.value("enum enumeration", 1))
+        self.assertEqual(str(gdb.lookup_type("enum enumeration").target().pointer()), str(val.type))
         self.assertEqual(int(val.dereference()), 1)
 
     def test_arrays(self):
         array = [1, 2, 3, 4, 42]
         val = debugger.value("int", array)
+        self.assertEqual(str(gdb.lookup_type("int").array(len(array) - 1)), str(val.type))
         val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
@@ -78,17 +95,18 @@ class TestValues(unittest.TestCase):
 
         array = ["h", "e", "l", "l", "o"]
         val = debugger.value("char", array)
+        self.assertEqual(str(gdb.lookup_type("char").array(len(array) - 1)), str(val.type))
         val = list(ccorrect.gdb_array_iter(val))
 
         self.assertEqual(len(val), len(array))
         for i, elem in enumerate(val):
             self.assertEqual(chr(elem), array[i])
 
-    def test_allocated_arrays(self):
+    def test_array_pointer(self):
         array = [0, 1, 2, 42]
-        val = debugger.value_allocated("int", array)
+        val = debugger.pointer(debugger.value("int", array))
         for i in range(4):
-            self.assertEqual(int(val[i]), array[i])
+            self.assertEqual(int(val.dereference()[i]), array[i])
 
     def test_strings(self):
         string = "hello"
@@ -103,15 +121,15 @@ class TestValues(unittest.TestCase):
             else:
                 self.assertEqual(chr(c), string[i])
 
-        val = debugger.string_allocated(string)
-        val = val.dereference().cast(gdb.lookup_type("char").array(len(string)))
+        ptr = debugger.pointer(val)
+        val = ptr.dereference()
         for i, c in enumerate(ccorrect.gdb_array_iter(val)):
             if i == len(string):
                 self.assertEqual(chr(c), '\0')
             else:
                 self.assertEqual(chr(c), string[i])
 
-        val = debugger.value_allocated("str_struct", {"value": 42, "name": "Hello there!"})
+        val = debugger.pointer(debugger.value("str_struct", {"value": 42, "name": "Hello there!"}))
         str_struct_name_len = debugger.function("str_struct_name_len")
         ret = str_struct_name_len(val)
         self.assertEqual(ret, 12)
@@ -199,10 +217,10 @@ class TestValues(unittest.TestCase):
         self.assertEqual(val["next"]["value"], node_struct["next"]["value"])
         self.assertEqual(val["next"]["next"], 0)
 
-    def test_allocated_struct(self):
+    def test_struct_pointer(self):
         node_struct = {"value": 4, "next": {"value": 5, "next": None}}
-        val = debugger.value_allocated("node_ext", node_struct)
-        val = val.dereference()
+        val = debugger.value("node_ext", node_struct)
+        val = debugger.pointer(val).dereference()
         self.assertEqual(val["value"], node_struct["value"])
         self.assertEqual(val["next"]["value"], node_struct["next"]["value"])
         self.assertEqual(val["next"]["next"], 0)
@@ -247,9 +265,9 @@ class TestValues(unittest.TestCase):
 
     def test_circular_struct(self):
         # manually create circular struct using pointers of previously allocated values
-        tail = debugger.value_allocated("node", {"value": 6, "next": None})
-        middle = debugger.value_allocated("node", {"value": 5, "next": ccorrect.Ptr(tail)})
-        head = debugger.value_allocated("node", {"value": 4, "next": ccorrect.Ptr(middle)})
+        tail = debugger.pointer(debugger.value("node", {"value": 6, "next": None}))
+        middle = debugger.pointer(debugger.value("node", {"value": 5, "next": ccorrect.Ptr(tail)}))
+        head = debugger.pointer(debugger.value("node", {"value": 4, "next": ccorrect.Ptr(middle)}))
 
         gdb.parse_and_eval(f"((node *) {tail})->next = {head}")
 
@@ -282,17 +300,17 @@ class TestValues(unittest.TestCase):
         self.assertEqual(val[2]["next"], 0)
 
     def test_pointer_from_value(self):
-        val = debugger.value_allocated("node", {"value": 4, "next": None})
+        val = debugger.value("node", {"value": 4, "next": None})
         ptr = debugger.pointer(val)
+        ptr_ptr = debugger.pointer(ptr)
 
-        self.assertEqual(str(val.type), "node *")
+        self.assertEqual(str(val.type), "node")
         self.assertEqual(val["value"], 4)
 
-        self.assertEqual(str(ptr.type), "node **")
-        self.assertEqual(str(ptr.dereference().type), "node *")
+        self.assertEqual(str(ptr.type), "node *")
+        self.assertEqual(str(ptr.dereference().type), "node")
         self.assertEqual(ptr.dereference()["value"], 4)
 
-        # cannot get pointer of gdb.Value that isn't allocated on the inferior's heap
-        with self.assertRaises(AssertionError):
-            val = debugger.value("node", {"value": 4, "next": None})
-            ptr = debugger.pointer(val)
+        self.assertEqual(str(ptr_ptr.type), "node **")
+        self.assertEqual(str(ptr_ptr.dereference().type), "node *")
+        self.assertEqual(ptr_ptr.dereference().dereference()["value"], 4)
