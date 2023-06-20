@@ -1,6 +1,7 @@
 import gdb
 import struct
 import sys
+import math
 from functools import wraps
 
 
@@ -148,6 +149,7 @@ class StructNode(ValueNode):
 
         if len(bytes) % alignment != 0:
             padding = abs(alignment - len(bytes))
+            padding = (math.ceil(len(bytes) / alignment) * alignment) - len(bytes)  # difference of 'len(bytes)' and its nearest, greater multiple of 'alignment'
             bytes += bytearray(int(0).to_bytes(padding, sys.byteorder))
 
 
@@ -175,7 +177,10 @@ class PointerNode(ValueNode):
         super().__init__(*args, **kwargs)
         if self.value is not None and not isinstance(self.value, Ptr):
             if isinstance(self.value, str):
-                for elem in self.value + chr(0):
+                self.value = tuple(self.value + chr(0))
+
+            if isinstance(self.value, (list, tuple)):
+                for elem in self.value:
                     self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
             else:
                 self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]

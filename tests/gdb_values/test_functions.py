@@ -30,13 +30,17 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(ret, 11)
 
     def test_call_generate_arg_from_template(self):
-        repeat_char, str_struct_name_len = debugger.functions(["repeat_char", "str_struct_name_len"])
+        repeat_char, str_struct_name_len, test_struct_mean = debugger.functions(["repeat_char", "str_struct_name_len", "test_struct_mean"])
 
         ret = repeat_char("c", 10)
         self.assertEqual(ret.string(), "c" * 10)
 
         ret = str_struct_name_len({"value": 42, "name": "Hello there"})
         self.assertEqual(ret, 11)
+
+        # test array-to-pointer decay
+        test_struct_array = [{"c": 0, "i": 32}, {"c": 1, "i": 40}]
+        assert test_struct_mean(test_struct_array, 2) == 36
 
     def test_call_return_args(self):
         return_arg = debugger.function("return_arg")
