@@ -210,6 +210,8 @@ class FuncWrapper:
 
     @ensure_self_debugging
     def __call__(self, *args):
+        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", 1)
+
         parsed_args = []
         if args is not None:
             arg_types = [field.type for field in self._value.type.fields()]
@@ -219,6 +221,8 @@ class FuncWrapper:
                 elif not isinstance(arg, gdb.Value):
                     arg = self._valuebuilder.value(type, arg)
                 parsed_args.append(arg)
+
+        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", 0)
         return self._value(*parsed_args)
 
     def __str__(self):
@@ -276,22 +280,7 @@ class ValueBuilder:
         if level == 0:
             print("----------------")
 
-    @ensure_self_debugging
-    def value(self, type, value):
-        """
-        Returns a gdb.Value constructed from a python variable
-        """
-        if not isinstance(type, gdb.Type):
-            type = gdb.lookup_type(type)
-
-        obj, root_type = self._value_as_bytes(type, value)
-        return gdb.Value(obj, root_type)
-
-    @ensure_self_debugging
-    def value_allocated(self, type, value):
-        """
-        Returns a gdb.Value pointer to value (contents are allocated in the inferior's memory)
-        """
+    def _value_allocated(self, type, value):
         if not isinstance(type, gdb.Type):
             type = gdb.lookup_type(type)
 
@@ -303,37 +292,36 @@ class ValueBuilder:
         inferior.write_memory(pointer, obj)
 
         self._allocated_addresses.add(int(pointer))
+        return pointer.cast(root_type.pointer())
 
-        if root_type.code == gdb.TYPE_CODE_ARRAY:
-            return pointer.cast(root_type.target().pointer())
-        else:
-            return pointer.cast(root_type.pointer())
+    @ensure_self_debugging
+    def value(self, type, value):
+        """
+        Returns a gdb.Value constructed from a python variable (contents are allocated in the inferior's memory)
+        """
+        return self._value_allocated(type, value).dereference()
 
     @ensure_self_debugging
     def string(self, str):
         """
-        Helper to create a string as a gdb.value
+        Helper to create a string as a gdb.Value (contents allocated in the inferior's memory)
         """
         return self.value("char", [*str, '\0'])
-
-    @ensure_self_debugging
-    def string_allocated(self, str):
-        """
-        Helper to create a string as a gdb.value (contents allocated in the inferior's memory)
-        """
-        return self.value_allocated("char", [*str, '\0'])
 
     @ensure_self_debugging
     def pointer(self, value_or_type, value=None):
         if value is None:
             value = value_or_type
             assert isinstance(value, gdb.Value)
-            assert value.type.code == gdb.TYPE_CODE_PTR
-            return self.value_allocated(value.type, Ptr(value))
+            if value.address is not None:
+                return value.address  # TODO the returned value won't have an address... fix this by allocating here?
 
-        assert isinstance(value_or_type, str)
+            assert value.type.code == gdb.TYPE_CODE_PTR
+            return self._value_allocated(value.type, Ptr(value))
+
         type = gdb.lookup_type(value_or_type).pointer()
-        return self.value(type, Ptr(value))
+        obj, root_type = self._value_as_bytes(type, Ptr(value))
+        return gdb.Value(obj, root_type)
 
     @ensure_self_debugging
     def function(self, funcname):

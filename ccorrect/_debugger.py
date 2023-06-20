@@ -90,6 +90,9 @@ class FuncBreakpoint(gdb.Breakpoint):
             pass
 
     def stop(self):
+        if gdb.convenience_variable("__CCorrect_disable_watch_fail"):
+            return False
+
         args = self.get_args()
         stats = self.debugger.stats
 
