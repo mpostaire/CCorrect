@@ -49,6 +49,17 @@ def ensure_none_debugging(func):
     return wrapper
 
 
+def disable_watch_fail(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", True)
+        ret = func(self, *args, **kwargs)
+        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", False)
+        return ret
+
+    return wrapper
+
+
 def type_is_signed(type):
     try:
         return type.is_signed
@@ -57,8 +68,7 @@ def type_is_signed(type):
         type = type.strip_typedefs().unqualified()
         if type.name is not None:
             return not type.name.startswith("unsigned")
-        else:
-            return False
+        return False
 
 
 class Ptr(int):
@@ -215,8 +225,6 @@ class FuncWrapper:
 
     @ensure_self_debugging
     def __call__(self, *args):
-        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", 1)
-
         parsed_args = []
         if args is not None:
             arg_types = [field.type for field in self._value.type.fields()]
@@ -227,7 +235,6 @@ class FuncWrapper:
                     arg = self._valuebuilder.value(type, arg)
                 parsed_args.append(arg)
 
-        gdb.set_convenience_variable("__CCorrect_disable_watch_fail", 0)
         return self._value(*parsed_args)
 
     def __str__(self):
@@ -243,16 +250,9 @@ class ValueBuilder:
         ValueBuilder._id_counter += 1
 
     def _parse_value(self, type, value, parent=None):
-        # TODO structs with flexible array: need alloc sizeof(struct) + sizeof(flexible_array)
-        #       --> because it can only work by alloc, we must detect nested structs with flexible array
-        #           detection:
-        #               1. last member of struct is a flexible array? --> OK
-        #               2. last member of struct is a struct? --> go back to 1.
-        #       this means that such a struct can only be built with value_allocated()
-        #       because fo this, this API must be tweaked to only build values in the inferior's heap
-
         type_code = type.strip_typedefs().code
         if type_code == gdb.TYPE_CODE_PTR:
+            # TODO parse given gdb.Type, not value type
             return PointerNode(type, Ptr(0) if value is None else value, self, parent=parent)
         elif isinstance(value, (list, tuple)):
             return ArrayNode(type, value, self, parent=parent)
@@ -285,48 +285,43 @@ class ValueBuilder:
         if level == 0:
             print("----------------")
 
+    @ensure_self_debugging
+    @disable_watch_fail
     def _value_allocated(self, type, value):
-        if not isinstance(type, gdb.Type):
-            type = gdb.lookup_type(type)
-
         obj, root_type = self._value_as_bytes(type, value)
 
-        # print(f"alloc size = {root_type.sizeof}")
-        pointer = gdb.parse_and_eval(f"(void *) malloc({root_type.sizeof})")
+        # print(f"alloc size = {len(obj)}")
+        pointer = gdb.parse_and_eval(f"(void *) malloc({len(obj)})")
         inferior = gdb.selected_inferior()
         inferior.write_memory(pointer, obj)
 
         self._allocated_addresses.add(int(pointer))
         return pointer.cast(root_type.pointer())
 
-    @ensure_self_debugging
     def value(self, type, value):
         """
         Returns a gdb.Value constructed from a python variable (contents are allocated in the inferior's memory)
         """
         return self._value_allocated(type, value).dereference()
 
-    @ensure_self_debugging
     def string(self, str):
         """
         Helper to create a string as a gdb.Value (contents allocated in the inferior's memory)
         """
         return self.value("char", [*str, '\0'])
 
-    @ensure_self_debugging
     def pointer(self, value_or_type, value=None):
         if value is None:
             value = value_or_type
             assert isinstance(value, gdb.Value)
             if value.address is not None:
-                return value.address  # TODO the returned value won't have an address... fix this by allocating here?
+                return value.address
 
             assert value.type.code == gdb.TYPE_CODE_PTR
             return self._value_allocated(value.type, Ptr(value))
 
         type = gdb.lookup_type(value_or_type).pointer()
-        obj, root_type = self._value_as_bytes(type, Ptr(value))
-        return gdb.Value(obj, root_type)
+        return self._value_allocated(type, Ptr(value)).dereference()
 
     @ensure_self_debugging
     def function(self, funcname):
@@ -337,9 +332,8 @@ class ValueBuilder:
         return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
     @ensure_self_debugging
+    @disable_watch_fail
     def free_allocated_values(self):
-        # copy self._allocated_addresses to not confuse the iterator as self._allocated_addresses is updated as addresses are freed
-        allocated_addresses = self._allocated_addresses.copy()
-        for address in allocated_addresses:
+        for address in self._allocated_addresses:
             gdb.parse_and_eval(f"free({address})")
-        allocated_addresses.clear()
+        self._allocated_addresses.clear()

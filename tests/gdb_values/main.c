@@ -26,10 +26,15 @@ typedef struct {
     node next;
 } node_ext;
 
-// typedef struct node_flexible_array {
-//     int value;
-//     int next[];
-// } node_flexible_array;
+typedef struct struct_flexible_array {
+    int size;
+    int array[];
+} struct_flexible_array;
+
+typedef struct struct_nested_flexible_array {
+    char value;
+    struct struct_flexible_array nested;
+} struct_nested_flexible_array;
 
 typedef struct {
     int value;
@@ -115,10 +120,17 @@ int open_file_r(char *path) {
     return open(path, O_RDONLY);
 }
 
+int test_flexible(struct_flexible_array *a) {
+    int sum = 0;
+    for (int i = 0; i < a->size; i++)
+        sum += a->array[i];
+    return sum;
+}
+
 int main() {
     node a = {0};
     node_ext b = {0};
-    // node_flexible_array c = {0};
+    struct_nested_flexible_array c = {0};
     node_array d = {0};
     node_array2d e = {0};
     node_array3d f = {0};
