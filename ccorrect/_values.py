@@ -250,9 +250,8 @@ class ValueBuilder:
         ValueBuilder._id_counter += 1
 
     def _parse_value(self, type, value, parent=None):
-        type_code = type.strip_typedefs().code
+        type_code = type.strip_typedefs().unqualified().code
         if type_code == gdb.TYPE_CODE_PTR:
-            # TODO parse given gdb.Type, not value type
             return PointerNode(type, Ptr(0) if value is None else value, self, parent=parent)
         elif isinstance(value, (list, tuple)):
             return ArrayNode(type, value, self, parent=parent)
