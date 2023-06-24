@@ -254,6 +254,15 @@ class TestValues(unittest.TestCase):
             for j, inner_elem in enumerate(elem):
                 self.assertEqual(int(inner_elem), array[i][j])
 
+    def test_struct_flexible_array(self):
+        test_flexible = debugger.function("test_flexible")
+
+        val = debugger.value("struct_flexible_array", {"size": 3, "array": [11, 22, 33]})
+        self.assertEqual(test_flexible(debugger.pointer(val)), sum([11, 22, 33]))
+
+        val = debugger.value("struct_nested_flexible_array", {"value": 42, "nested": {"size": 5, "array": [1, 2, 3, 4, -1]}})
+        self.assertEqual(test_flexible(debugger.pointer(val["nested"])), sum([1, 2, 3, 4, -1]))
+
     def test_nested_struct_pointer(self):
         node_struct = {"value": 4, "next": {"value": 5, "next": None}}
         val = debugger.value("node", node_struct)
