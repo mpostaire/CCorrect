@@ -1,33 +1,9 @@
-// the following includes are important
+// the following includes are needed by CCorrect
 #include <stdlib.h>
 #include <unistd.h>
 
-// include library to test
+// include functions to test
 #include "list.h"
-
-void memleak() {
-    malloc(1);
-}
-
-void out_of_bounds() {
-    int a[4] = {0};
-    a[4] = 1;
-}
-
-int sigfpe(int i) {
-    int zero = 0;
-    return i / zero;
-}
-
-void sigsegv() {
-    *(char *) NULL = 0;
-}
-
-void double_free() {
-    char *c = malloc(1);
-    free(c);
-    free(c);
-}
 
 int main() {
     return 0;
