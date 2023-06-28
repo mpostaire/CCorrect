@@ -72,6 +72,24 @@ def type_is_signed(type):
 
 
 class Ptr(int):
+    """
+    Wrapping an `int` value with this class tells the template parser that the wrapped value is the actual value of the pointer.
+    
+    This is useful because the template parser would have created a new pointer pointing to the `int` value instead.
+
+    Usage example::
+
+        debugger = Debugger("program")
+        debugger.start()
+
+        type = gdb.lookup_type("int").pointer()
+        val = self.value(type, 42)  # This creates a pointer pointing to an int with a value of 42.
+        val = self.value(type, Ptr(42))  # This creates a pointer pointing to memory address 42.
+        val = self.pointer("int", 42)  # This is equivalent to the line above.
+
+        debugger.finish()
+    """
+
     def __init__(self, value):
         if value < 0:
             raise ValueError(f"Ptr must be >= 0 (got {value})")
@@ -81,9 +99,9 @@ class Ptr(int):
 
 
 class ValueNode:
-    def __init__(self, type, value, value_builder, parent=None):
+    def __init__(self, type, template, value_builder, parent=None):
         self.type = type
-        self.value = value
+        self.template = template
         self.value_builder = value_builder
         self.parent = parent
         self.children = []
@@ -92,17 +110,19 @@ class ValueNode:
 class ScalarNode(ValueNode):
     def to_bytes(self):
         type = self.type.unqualified().strip_typedefs()
-        assert type.code == gdb.TYPE_CODE_INT or type.code == gdb.TYPE_CODE_FLT
 
         # as floats/doubles in python don't have a to_bytes() method, use struct.pack()
-        if isinstance(self.value, float):
-            return bytearray(struct.pack("f" if type.name == "float" else "d", self.value))
+        if isinstance(self.template, float):
+            assert type.code == gdb.TYPE_CODE_FLT
+            return bytearray(struct.pack("f" if type.name == "float" else "d", self.template))
 
-        if isinstance(self.value, str):
-            self.value = ord(self.value[0])
+        assert type.code == gdb.TYPE_CODE_INT or type.code == gdb.TYPE_CODE_PTR or type.code == gdb.TYPE_CODE_VOID
+
+        if isinstance(self.template, str):
+            self.template = ord(self.template[0])
 
         # Using this method instead of struct.pack() is easier (especially if it's a typedef): no need to build a format string matching the type
-        return bytearray(self.value.to_bytes(self.type.sizeof, sys.byteorder, signed=type_is_signed(type)))
+        return bytearray(self.template.to_bytes(self.type.sizeof, sys.byteorder, signed=type_is_signed(type)))
 
 
 class ArrayNode(ValueNode):
@@ -114,8 +134,8 @@ class ArrayNode(ValueNode):
             # needs to be set to an actual array type
             self.__set_root_type()
 
-        for elem in self.value:
-            self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
+        for elem in self.template:
+            self.children.append(self.value_builder._parse_template(self.type.target(), elem, self))
 
     def to_bytes(self):
         obj = bytearray()
@@ -124,12 +144,12 @@ class ArrayNode(ValueNode):
         return obj
 
     def __set_root_type(self):
-        value = self.value
+        template = self.template
         lengths = []
 
-        while isinstance(value, (list, tuple)):
-            lengths.append(len(value) - 1)
-            value = value[0]
+        while isinstance(template, (list, tuple)):
+            lengths.append(len(template) - 1)
+            template = template[0]
 
         for length in reversed(lengths):
             self.type = self.type.array(length)
@@ -140,7 +160,7 @@ class StructNode(ValueNode):
         super().__init__(*args, **kwargs)
 
         for f in self.type.fields():
-            self.children.append(self.value_builder._parse_value(f.type, self.value[f.name], self))
+            self.children.append(self.value_builder._parse_template(f.type, self.template[f.name], self))
 
     def to_bytes(self):
         obj = bytearray()
@@ -168,8 +188,8 @@ class UnionNode(ValueNode):
         super().__init__(*args, **kwargs)
 
         fields = {f.name: f for f in self.type.fields()}
-        for name, value in self.value.items():
-            self.children.append(self.value_builder._parse_value(fields[name].type, value, self))
+        for name, template in self.template.items():
+            self.children.append(self.value_builder._parse_template(fields[name].type, template, self))
 
     def to_bytes(self):
         for elem in self.children:
@@ -185,19 +205,19 @@ class UnionNode(ValueNode):
 class PointerNode(ValueNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.value is not None and not isinstance(self.value, Ptr):
-            if isinstance(self.value, str):
-                self.value = tuple(self.value + chr(0))
+        if self.template is not None and not isinstance(self.template, Ptr):
+            if isinstance(self.template, str):
+                self.template = tuple(self.template + chr(0))
 
-            if isinstance(self.value, (list, tuple)):
-                for elem in self.value:
-                    self.children.append(self.value_builder._parse_value(self.type.target(), elem, self))
+            if isinstance(self.template, (list, tuple)):
+                for elem in self.template:
+                    self.children.append(self.value_builder._parse_template(self.type.target(), elem, self))
             else:
-                self.children = [self.value_builder._parse_value(self.type.target(), self.value, self)]
+                self.children = [self.value_builder._parse_template(self.type.target(), self.template, self)]
 
     def to_bytes(self):
-        if isinstance(self.value, Ptr):
-            address = self.value
+        if isinstance(self.template, Ptr):
+            address = self.template
         else:
             obj = bytearray()
             for child in self.children:
@@ -215,8 +235,8 @@ class PointerNode(ValueNode):
 
 class FuncWrapper:
     """
-    Extending gdb.Value doesn't always work depending on the gdb version so we make
-    a wrapper around a gdb.Value representing a function that parses template arguments.
+    Extending `gdb.Value` doesn't always work depending on the gdb version so we make
+    a wrapper around a `gdb.Value` representing a function that parses template arguments.
     """
 
     def __init__(self, valuebuilder, *args, **kwargs):
@@ -249,27 +269,27 @@ class ValueBuilder:
         self._id = ValueBuilder._id_counter
         ValueBuilder._id_counter += 1
 
-    def _parse_value(self, type, value, parent=None):
+    def _parse_template(self, type, template, parent=None):
         type_code = type.strip_typedefs().unqualified().code
         if type_code == gdb.TYPE_CODE_PTR:
-            return PointerNode(type, Ptr(0) if value is None else value, self, parent=parent)
-        elif isinstance(value, (list, tuple)):
-            return ArrayNode(type, value, self, parent=parent)
-        elif isinstance(value, dict):
+            return PointerNode(type, Ptr(0) if template is None else template, self, parent=parent)
+        elif isinstance(template, (list, tuple)):
+            return ArrayNode(type, template, self, parent=parent)
+        elif isinstance(template, dict):
             if type_code == gdb.TYPE_CODE_UNION:
-                return UnionNode(type, value, self, parent=parent)
-            return StructNode(type, value, self, parent=parent)
+                return UnionNode(type, template, self, parent=parent)
+            return StructNode(type, template, self, parent=parent)
         elif type_code == gdb.TYPE_CODE_ENUM:
-            return ScalarNode(type.target(), value, self, parent=parent)
+            return ScalarNode(type.target(), template, self, parent=parent)
         else:
-            return ScalarNode(type, value, self, parent=parent)
+            return ScalarNode(type, template, self, parent=parent)
 
-    def _value_as_bytes(self, type, value):
+    def _value_as_bytes(self, type, template):
         if not isinstance(type, gdb.Type):
             type = gdb.lookup_type(type)
 
-        root = self._parse_value(type, value)
-        # self._print_tree(root)
+        root = self._parse_template(type, template)
+        self._print_tree(root)
         return root.to_bytes(), root.type
 
     def _print_tree(self, node, level=0):
@@ -277,7 +297,7 @@ class ValueBuilder:
             print("----------------")
 
         nullchar_repr = '\\x00'
-        print(f"{'  ' * level}type={node.type}, value={str(node.value).replace(chr(0), nullchar_repr)}")
+        print(f"{'  ' * level}type={node.type}, template={str(node.template).replace(chr(0), nullchar_repr)}")
         for child in node.children:
             self._print_tree(child, level=level + 1)
 
@@ -286,8 +306,8 @@ class ValueBuilder:
 
     @ensure_self_debugging
     @disable_watch_fail
-    def _value_allocated(self, type, value):
-        obj, root_type = self._value_as_bytes(type, value)
+    def _value_allocated(self, type, template):
+        obj, root_type = self._value_as_bytes(type, template)
 
         # print(f"alloc size = {len(obj)}")
         pointer = gdb.parse_and_eval(f"(void *) malloc({len(obj)})")
@@ -297,19 +317,56 @@ class ValueBuilder:
         self._allocated_addresses.add(int(pointer))
         return pointer.cast(root_type.pointer())
 
-    def value(self, type, value):
+    def value(self, type, template):
         """
-        Returns a gdb.Value constructed from a python variable (contents are allocated in the inferior's memory)
+        Returns a `gdb.Value` constructed from a type and a template (contents are allocated in the inferior's memory).
+        A template is either a python int, float, str, list or dictionnary that is parsed to easily construct a `gdb.Value`.
+        This method can create scalars (int, char, float, pointers, enums values, ...) and aggregates (arrays, stucts, unions).
+
+        The `type` argument must be a string representing the identifier of a type.
+
+        The `template` argument is either a `int`, `float`, `str`, `list` or a `dict`.
+
+        If the template is a `list`, its elements must be templates and the returned `gdb.Value` will be an array of the elements from the list.
+
+        In the case where the given `type` is a struct or an union, the template must be a `dict` whose keys are strings representing
+        each member's identifier and the values are templates.
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            val = debugger.value("int", 42)  # Creates an int with a value of 42.
+            val = debugger.value("int", [0, 1, 2, 3])  # Creates an int array of 4 elements with values 0, 1, 2 and 3.
+            val = debugger.value("char", ["H", "e", "l", "l", "o", "!", 0])  # Creates a char array containing the string "Hello!".
+            val = debugger.value("struct student", {"id": 2468, "grades": [13, 12, 8, 17]})  # Creates a struct student.
+
+            debugger.finish()
         """
-        return self._value_allocated(type, value).dereference()
+        return self._value_allocated(type, template).dereference()
 
     def string(self, str):
         """
-        Helper to create a string as a gdb.Value (contents allocated in the inferior's memory)
+        Helper to create a string as a `gdb.Value`.
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            # The 2 following lines are equivalent:
+            val = debugger.value("char", ["H", "e", "l", "l", "o", "!", 0])
+            val = debugger.string("Hello!")
+
+            debugger.finish()
         """
         return self.value("char", [*str, '\0'])
 
     def pointer(self, value_or_type, value=None):
+        """
+        Returns a `gdb.Value` representing a pointer. It can be used to get a pointer towards a `gdb.Value` or create a pointer pointing to the given value.
+        """
         if value is None:
             value = value_or_type
             assert isinstance(value, gdb.Value)
@@ -324,15 +381,47 @@ class ValueBuilder:
 
     @ensure_self_debugging
     def function(self, funcname):
+        """
+        Returns a `FuncWrapper` representing a function from a string represention a function identifier.
+        `FuncWrapper` wraps a `gdb.Value`, allowing to call it with templates as arguments.
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            malloc = debugger.function("malloc")
+            ptr = malloc(12)
+
+            debugger.finish()
+        """
         return FuncWrapper(self, gdb.parse_and_eval(funcname))
 
     @ensure_self_debugging
     def functions(self, funcnames):
+        """
+        Returns multiple `FuncWrapper` representing functions at once from a list of strings representing functions identifiers.
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            malloc, free = debugger.functions(["malloc", "free"])
+            ptr = malloc(12)
+            # Do something...
+            free(ptr)
+
+            debugger.finish()
+        """
         return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
 
     @ensure_self_debugging
     @disable_watch_fail
     def free_allocated_values(self):
+        """
+        Free all allocated values created by the `value`, `pointer` and `string` methods. This is called by default by the `finish` method.
+        """
         for address in self._allocated_addresses:
             gdb.parse_and_eval(f"free({address})")
         self._allocated_addresses.clear()
