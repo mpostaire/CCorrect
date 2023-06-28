@@ -131,7 +131,7 @@ def test_metadata(problem=None, description=None, weight=1, timeout=0):
                 }
 
             _test_results[pb]["tests"].append({
-                "description": "" if description is None else description,
+                "description": f"testing '{func.__name__}'" if description is None else description,
                 "weight": weight,
                 "success": False,
                 "messages": [],
