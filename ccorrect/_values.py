@@ -239,9 +239,11 @@ class FuncWrapper:
     a wrapper around a `gdb.Value` representing a function that parses template arguments.
     """
 
-    def __init__(self, valuebuilder, *args, **kwargs):
+    def __init__(self, valuebuilder, function):
         self._valuebuilder = valuebuilder
-        self._value = gdb.Value(*args, **kwargs)
+        self._value = gdb.parse_and_eval(function)
+        if self._value.type.strip_typedefs().unqualified().code != gdb.TYPE_CODE_FUNC:
+            raise ValueError(f"'{function}' is not a valid function identifier")
 
     @ensure_self_debugging
     def __call__(self, *args):
@@ -395,7 +397,7 @@ class ValueBuilder:
 
             debugger.finish()
         """
-        return FuncWrapper(self, gdb.parse_and_eval(funcname))
+        return FuncWrapper(self, funcname)
 
     @ensure_self_debugging
     def functions(self, funcnames):
@@ -414,7 +416,7 @@ class ValueBuilder:
 
             debugger.finish()
         """
-        return tuple(FuncWrapper(self, gdb.parse_and_eval(funcname)) for funcname in funcnames)
+        return tuple(FuncWrapper(self, funcname) for funcname in funcnames)
 
     @ensure_self_debugging
     @disable_watch_fail
