@@ -33,6 +33,55 @@ class MetaTestCase(type):
 
 
 class TestCase(unittest.TestCase, metaclass=MetaTestCase):
+    """
+    This class must be extended by a custom class that contains the test methods that will test, grade and provide feedback for the tested program.
+    Upon declaration, a child of this class must set the `debugger` class variable to an instance of `Debugger`.
+
+    This class is itself a subclass of `unittest.TestCase`: it is recommended to read the documentation of the `unittest` module of Python to understand how to use the different assertion methods.
+
+    A test method is a method of this class which name starts with the 'test' prefix.
+
+    All test methods have an auto generated problem name and description, a grading weight of 1 and no execution timeout by default.
+    These values can be changed using the `test_metadata` decorator on a test method.
+
+    A test is considered failed if an assertion fails, or if memory leaks are detected while the `debugger` has been instanciated with its `asan_detect_leaks` argument set to True.
+
+    Just before and after each test method execution, `debugger.start()` and `debugger.finish()` are called.
+
+    Usage example::
+
+        import ccorrect
+
+        class TestValueBuilder(ccorrect.TestCase):
+            debugger = ccorrect.Debugger("tested_program")
+
+            def test_list(self):
+                list_ptr = self.debugger.pointer(self.debugger.pointer("node", 0))
+                push, pop = self.debugger.functions(["push", "pop"])
+
+                with self.debugger.watch(["malloc", "free"]):
+                    nullptr = self.debugger.pointer("void", 0)
+                    with self.debugger.fail("malloc", retval=nullptr):
+                        push_ret = push(list_ptr, 42)
+
+                    self.assertEqual(self.debugger.stats["malloc"].called, 1)
+                    self.assertEqual(self.debugger.stats["malloc"].returns[0], 0)
+                    self.assertEqual(push_ret, -1)
+
+                    push_ret = push(list_ptr, 42)
+
+                    self.assertEqual(self.debugger.stats["malloc"].called, 2)
+                    self.assertGreater(self.debugger.stats["malloc"].returns[1], 0)
+                    self.assertEqual(push_ret, 0)
+
+                    pop_ret = pop(list_ptr)
+
+                    self.assertEqual(self.debugger.stats["free"].called, 1)
+                    self.assertEqual(pop_ret, 42)
+
+
+        ccorrect.run_tests()
+    """
     longMessage = False
     failureException = TestAssertionError
     debugger = None
@@ -110,6 +159,7 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
 
 
 def test_metadata(problem=None, description=None, weight=1, timeout=0):
+    """This sets a `problem` name, a `description` a grading `weight` and a `timeout` (0 means no timeout) to a test."""
     assert weight >= 1
     assert timeout >= 0
 
@@ -215,6 +265,18 @@ def _run_ban_test(ban_functions, runner, result_filepath):
 
 
 def run_tests(test_cases=None, verbosity=0, ban_functions=None, result_filepath="results.yml"):
+    """
+    This runs the test methods of the test cases defined in the same file as this is called.
+    Optionnaly, the test cases to execute can be set in the `test_cases` argument that is a list of `TestCase` classes.
+
+    The test methods of a `TestCase` are executed in the lexicographic order.
+
+    The results are written in the `result_filepath` YAML file.
+
+    If `ban_functions` is an optional dictionnary that contains 2 keys: "sources" and "functions" and is used to fail all tests if the tested program use a banned function.
+    "functions" is a list of strings of function identifiers.
+    "sources" is a list of C source file paths that will all be parsed to check if there is any call to a function that is also present in the "functions" list.
+    """
     try:
         os.remove(result_filepath)
     except FileNotFoundError:
