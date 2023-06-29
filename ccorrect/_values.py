@@ -6,7 +6,7 @@ from functools import wraps
 
 
 def gdb_array_iter(value):
-    # type_of_elements = value.type.target()
+    """Iterator for a `gdb.Value` representing an array. Returns each elements of the array."""
     range_of_array = value.type.fields()[0].type.range()
     len_of_array = range_of_array[1] + 1
     for i in range(len_of_array):
@@ -14,6 +14,7 @@ def gdb_array_iter(value):
 
 
 def gdb_struct_iter(value):
+    """Iterator for a `gdb.Value` representing a struct. Returns tuples of each struct member name and their value."""
     for f in value.type.fields():
         yield f.name, value[f.name]
 

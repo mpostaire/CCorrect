@@ -160,6 +160,15 @@ class FuncBreakpoint(gdb.Breakpoint):
 
 
 class Debugger(ValueBuilder):
+    """
+    This is the main class to interact with the tested program (called the inferior).
+    It is used to fail and capture the usage of functions with its `watch` and `fail` methods, as well as providing an easy way to create variables in the inferior's memory.
+
+    The `program` argument is the path to the tested program.
+    If `asan_detect_leaks` is set to True and if the tested program has been compiled with the `-fsanitize=address` option, LeakSanitizer's will be enabled to find memory leaks.
+
+    The GDB process needs to have access to the tested program and the standard library symbols for a `Debugger` to work.
+    """
     def __init__(self, program, backtrace_max_depth=8, save_output=True, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
@@ -181,7 +190,27 @@ class Debugger(ValueBuilder):
     @ensure_self_debugging
     def watch(self, functions):
         """
+        Collect the number of calls, arguments and returns values of the given functions and place them in the `stats` dictionnary of the `Debugger` instance.
+
         This cannot watch function calls that are directly called by the debugger/gdb
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            func = debugger.function("func")  # 'func' is a function that calls malloc.
+
+            with debugger.watch("malloc"):
+                func(42)
+
+            func(21)
+
+            assert debugger.stats["malloc"].called == 1
+            assert debugger.stats["malloc"].args[0][0] == 42
+            assert debugger.stats["malloc"].returns[0] > 0
+
+            debuffer.finish()
         """
         # TODO functions can contain gdb.Value
         if not isinstance(functions, (list, tuple)):
@@ -217,7 +246,29 @@ class Debugger(ValueBuilder):
     @ensure_self_debugging
     def fail(self, function, retval=None, ret_args=None, errno=None, when=None):
         """
+        Prevents execution of `function` and optionally sets its return value to `retval`.
+        It can set `errno` and change the value of its arguments with `ret_args` (useful in the case of functions that changes the contents of a pointer passed as argument).
+        The `when` argument is a set of numbers to tell the `Debugger` when to fail `function`. If `when` is {0, 2}, `function` is only failed on its first and third calls.
+        If None, it always fails `function`.
+
         This cannot fail function calls that are directly called by the debugger/gdb
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            func = debugger.function("func")  # 'func' is a function that calls malloc and returns 1 if it succeeded, 0 otherwise.
+
+            nullptr = debugger.pointer("void", 0)
+            with debugger.fail("malloc", retval=nullptr):
+                ret = func(42)
+                assert ret == 0
+
+            ret = func(42)
+            assert ret == 1
+
+            debuffer.finish()
         """
         # TODO function can be a gdb.Value
         failure = {}
@@ -273,6 +324,10 @@ class Debugger(ValueBuilder):
 
     @ensure_none_debugging
     def start(self, timeout=0):
+        """
+        Starts the `Debugger`, reserving GDB for this instance. This must be called for every other method of `Debugger` to work.
+        A `timeout` in seconds can be set in order to limit the execution time of the inferior (0 means no timeout).
+        """
         self.stats.clear()
         self._allocated_regions.clear()
 
@@ -305,6 +360,10 @@ class Debugger(ValueBuilder):
 
     @ensure_self_debugging
     def finish(self, free_allocated_values=True):
+        """
+        Finishes the `Debugger`, releasing GDB for other `Debugger` instances.
+        All allocated values by the `value`, `pointer` and `string` methods are freed by default but this behaviour can be changed by setting `free_allocated_values` to False.
+        """
         try:
             if free_allocated_values:
                 self.free_allocated_values()
@@ -323,6 +382,7 @@ class Debugger(ValueBuilder):
 
     @ensure_self_debugging
     def thread_count(self):
+        """Returns the current number of threads."""
         return int(gdb.convenience_variable("_inferior_thread_count"))
 
     @ensure_self_debugging
@@ -338,10 +398,7 @@ class Debugger(ValueBuilder):
     @ensure_self_debugging
     def allocated_size(self):
         """
-        Get the total size of all allocated memory regions (this only keep track of allocated memory when malloc/calloc/realloc/free are watched).
-
-        Returns:
-            int: The total size of all allocated memory regions.
+        Returns the total size of all allocated memory regions (this only keep track of allocated memory when malloc/calloc/realloc/free are watched).
         """
         return sum(size for _, size in self._allocated_regions)
 
