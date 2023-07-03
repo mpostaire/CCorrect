@@ -292,7 +292,7 @@ class ValueBuilder:
             type = gdb.lookup_type(type)
 
         root = self._parse_template(type, template)
-        self._print_tree(root)
+        # self._print_tree(root)
         return root.to_bytes(), root.type
 
     def _print_tree(self, node, level=0):
