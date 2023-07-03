@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+
 
 struct point {
     int x;
@@ -29,6 +31,10 @@ int f(int a, int b, int c) {
     return a * b + c - e(b);
 }
 
+void g(void) {
+    puts("Hello world!");
+}
+
 int main() {
     int result = a(3, 4);
 
@@ -38,6 +44,11 @@ int main() {
     };
 
     int arr[] = {1, 2, d(e(4), 5)};
-    b();
+    if (arr[3])
+        b();
+
+    void *(*funcptr)(size_t) = malloc;
+    funcptr(2);
+
     return c();
 }
