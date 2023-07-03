@@ -8,7 +8,7 @@ class FuncCallVisitor(c_ast.NodeVisitor):
         self.scopes = []
 
     def visit_scope(self, node):
-        self.scopes.append({})
+        self.scopes.append(set())
         self.generic_visit(node)
         self.scopes.pop()
 
@@ -39,8 +39,7 @@ class FuncCallVisitor(c_ast.NodeVisitor):
     def visit_PtrDecl(self, node):
         if isinstance(node.type, c_ast.FuncDecl):
             # print(f"{node} called at {node.coord}")
-            # TODO can this be overwritten, thus not updating scope?
-            self.scopes[-1][node.type.type.declname] = True
+            self.scopes[-1].add(node.type.type.type.declname)
 
         self.generic_visit(node)
 
