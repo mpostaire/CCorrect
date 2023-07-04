@@ -314,8 +314,7 @@ class ValueBuilder:
 
         # print(f"alloc size = {len(obj)}")
         pointer = gdb.parse_and_eval(f"(void *) malloc({len(obj)})")
-        inferior = gdb.selected_inferior()
-        inferior.write_memory(pointer, obj)
+        gdb.selected_inferior().write_memory(pointer, obj)
 
         self._allocated_addresses.add(int(pointer))
         return pointer.cast(root_type.pointer())
@@ -381,6 +380,38 @@ class ValueBuilder:
 
         type = gdb.lookup_type(value_or_type).pointer()
         return self._value_allocated(type, Ptr(value)).dereference()
+
+    @ensure_self_debugging
+    @disable_watch_fail
+    def allocate(self, size, value):
+        """
+        Returns a `gdb.Value` representing a pointer towards an allocated memory region of `size` bytes in wich each byte is set to `value`.
+
+        `value` can be any number in the range [0, 255] or a function that returns such a number and that is called for every position of the allocated memory region.
+        If it is a function, it has one argument that is the 0-indexed position in the allocated memory region.
+
+        Usage example::
+
+            debugger = Debugger("program")
+            debugger.start()
+
+            # Allocate 3 bytes all set to 42.
+            ptr1 = debugger.allocate(3, 42)
+
+            # Allocate 10 bytes each set to different random values between 0 and 255 (bounds included).
+            ptr2 = debugger.allocate(10, lambda i: randint(0, 255))
+
+            # Allocate 6 bytes where the ith byte is set to i.
+            ptr3 = debugger.allocate(6, lambda i: i)
+
+            debugger.finish()
+        """
+        ptr = gdb.parse_and_eval(f"(void *) malloc({size})")
+        obj = bytearray(value(i) if callable(value) else value for i in range(size))
+        gdb.selected_inferior().write_memory(ptr, obj, size)
+
+        self._allocated_addresses.add(int(ptr))
+        return ptr
 
     @ensure_self_debugging
     def function(self, funcname):
