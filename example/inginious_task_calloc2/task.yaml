@@ -1,0 +1,45 @@
+accessible: true
+author: Mathieu Xhonneux
+categories:
+- category_malloc
+- level4
+- s3
+contact_url: ''
+context: Ecrire la fonction ``calloc2``, ayant le même prototype et le même fonctionnement
+    que `calloc(3) <https://sites.uclouvain.be/SystInfo/manpages/man3/calloc.3.html>`_
+    mais qui utilise `malloc(3) <https://sites.uclouvain.be/SystInfo/manpages/man3/malloc.3.html>`_
+    pour allouer la mémoire.
+environment_id: ccorrect
+environment_parameters:
+    limits:
+        time: '30'
+        hard_time: ''
+        memory: '200'
+    run_cmd: ''
+environment_type: docker
+evaluate: best
+file: ''
+groups: false
+input_random: '0'
+name: '[S3] Coder calloc en utilisant malloc'
+network_grading: false
+order: 21
+problems:
+    calloc2:
+        type: code
+        name: calloc2
+        header: |-
+            Entrez ici le corps de votre fonction ``calloc2``. Pensez à bien lire la documentation pour respecter tout ce que fait la fonction `calloc(3) <https://sites.uclouvain.be/SystInfo/manpages/man3/malloc.3.html>`_.
+
+            .. code-block:: c
+
+               #include <stdlib.h>
+
+               void *calloc2(size_t nmemb, size_t size) {
+        language: c
+        default: ''
+stored_submissions: 0
+submission_limit:
+    amount: -1
+    period: -1
+weight: 1.0
