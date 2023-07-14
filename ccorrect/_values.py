@@ -383,12 +383,13 @@ class ValueBuilder:
 
     @ensure_self_debugging
     @disable_watch_fail
-    def allocate(self, size, value):
+    def allocate(self, size, value=None):
         """
         Returns a `gdb.Value` representing a pointer towards an allocated memory region of `size` bytes in wich each byte is set to `value`.
 
-        `value` can be any number in the range [0, 255] or a function that returns such a number and that is called for every position of the allocated memory region.
+        `value` can be either `None`, any number in the range [0, 255] or a function that returns such a number and that is called for every position of the allocated memory region.
         If it is a function, it has one argument that is the 0-indexed position in the allocated memory region.
+        If it is `None`, this has the same effect as just calling `malloc`.
 
         Usage example::
 
@@ -407,8 +408,10 @@ class ValueBuilder:
             debugger.finish()
         """
         ptr = gdb.parse_and_eval(f"(void *) malloc({size})")
-        obj = bytearray(value(i) if callable(value) else value for i in range(size))
-        gdb.selected_inferior().write_memory(ptr, obj, size)
+
+        if value is not None:
+            obj = bytearray(value(i) if callable(value) else value for i in range(size))
+            gdb.selected_inferior().write_memory(ptr, obj, size)
 
         self._allocated_addresses.add(int(ptr))
         return ptr
