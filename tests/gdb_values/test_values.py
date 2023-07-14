@@ -112,22 +112,16 @@ class TestValues(unittest.TestCase):
         string = "hello"
 
         val = debugger.string("hello")
-        val_len = val.type.fields()[0].type.range()[1]
+        val_len = 0
+        while val[val_len] != 0:
+            val_len += 1
         self.assertEqual(val_len, len(string))
 
-        for i, c in enumerate(ccorrect.gdb_array_iter(val)):
-            if i == len(string):
-                self.assertEqual(chr(c), '\0')
+        for i in range(val_len + 1):
+            if i == val_len:
+                self.assertEqual(chr(val[i]), '\0')
             else:
-                self.assertEqual(chr(c), string[i])
-
-        ptr = debugger.pointer(val)
-        val = ptr.dereference()
-        for i, c in enumerate(ccorrect.gdb_array_iter(val)):
-            if i == len(string):
-                self.assertEqual(chr(c), '\0')
-            else:
-                self.assertEqual(chr(c), string[i])
+                self.assertEqual(chr(val[i]), string[i])
 
         val = debugger.pointer(debugger.value("str_struct", {"value": 42, "name": "Hello there!"}))
         str_struct_name_len = debugger.function("str_struct_name_len")

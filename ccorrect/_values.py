@@ -358,12 +358,12 @@ class ValueBuilder:
             debugger.start()
 
             # The 2 following lines are equivalent:
-            val = debugger.value("char", ["H", "e", "l", "l", "o", "!", 0])
+            val = debugger.value("char", ["H", "e", "l", "l", "o", "!", 0]).cast(gdb.lookup_type("char").pointer())
             val = debugger.string("Hello!")
 
             debugger.finish()
         """
-        return self.value("char", [*str, '\0'])
+        return self.value("char", [*str, '\0']).cast(gdb.lookup_type("char").pointer())
 
     def pointer(self, value_or_type, value=None):
         """
