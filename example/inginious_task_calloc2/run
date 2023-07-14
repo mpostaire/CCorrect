@@ -1,0 +1,125 @@
+#!/bin/python3
+
+# Script d'interface entre INGInious et des tests unitaires écrits à l'aide de CCorrect (original: https://github.com/UCL-INGI/CTester/blob/master/run)
+# Auteurs : Mathieu Xhonneux, Anthony Gégo, Maxime Postaire
+# Licence : GPLv3
+
+import sys, subprocess, shlex, os, yaml, re, glob, ccorrect
+from inginious import feedback, rst, input
+from inginious_container_api import run_student
+
+# Switch working directory to student/
+os.chdir("student")
+
+# Fetch and save the student code into files for compilation
+for template_file in glob.glob("*.c.tpl"):
+    # create a copy of template_file without #line directives
+    template_file_comp = f"{os.path.splitext(os.path.splitext(template_file)[0])[0]}_comp.c.tpl"
+    with open(template_file, "r") as f:
+        lines = filter(lambda line: not re.match('^[ \t]*#line \d+[ \t]*(".*")*[ \t]*$', line), f.readlines())
+    with open(template_file_comp, "w") as f:
+        f.writelines(lines)
+    input.parse_template(template_file, os.path.splitext(template_file)[0])
+    input.parse_template(template_file_comp, os.path.splitext(template_file_comp)[0])
+
+# Compilation
+p1 = subprocess.Popen(shlex.split("make check_compile"), stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+p2 = subprocess.Popen(shlex.split("make"), stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+
+make_output = p1.communicate()[0].decode('utf-8')
+# If compilation failed, exit with "failed" result
+if p1.returncode or p2.returncode:
+    feedback.set_tag("not_compile", True)
+    feedback.set_global_result("failed")
+    feedback.set_global_feedback("La compilation de votre code a échoué. Voici le message de sortie de la commande ``make`` :")
+    feedback.set_global_feedback(rst.get_codeblock('', make_output), True)
+    exit(0)
+else:
+    # Cppcheck
+    p = subprocess.Popen(shlex.split("make check"), stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+    cppcheck_output = p.communicate()[0].decode('utf-8')
+    if p.returncode:
+        feedback.set_tag("cppcheck", True)
+        feedback.set_global_result("failed")
+        feedback.set_global_feedback("La compilation de votre code avec ``cppcheck`` a échoué. Voici le message de sortie de la commande ``make check`` :")
+        feedback.set_global_feedback(rst.get_codeblock('', cppcheck_output), True)
+        exit(0)
+    else:
+        feedback.set_global_result("success")
+        feedback.set_global_feedback("- Votre code compile.\n")
+
+# Remove all files except sources
+subprocess.run("rm -rf solutions *.tpl *.o", shell=True)
+
+# Run the code in a parallel container
+stdout, stderr, returncode = run_student.run_student_simple(ccorrect._get_cmd('test.py'))
+print(stdout)
+print(stderr, file=sys.stderr)
+# If run failed, exit with "failed" result
+if returncode:
+    feedback.set_global_result("failed")
+    if returncode == 252:
+        montest_output = rst.get_admonition("warning", "**Erreur d'exécution**", "Votre code a tenté d'allouer plus de mémoire que disponible.")
+        feedback.set_tag("memory", True)
+    elif returncode == 253:
+        montest_output = rst.get_admonition("warning", "**Erreur d'exécution**", "Votre code a pris trop de temps pour s'exécuter.")
+    else:
+        montest_output = rst.get_admonition("warning", "**Erreur d'exécution**", "Votre code a produit une erreur.")
+    feedback.set_global_feedback(rst.indent_block(2, montest_output, " "), True)
+    exit(0)
+
+# Comment to run the tests
+#feedback.set_global_feedback("- **Cette note n'est pas finale.** Une série de tests sera exécutée sur votre code après l'examen.\n", True)
+#exit(0)
+
+# Fetch CCorrect test results
+with open("results.yml", "r") as f:
+    results = yaml.safe_load(f)
+
+# Check banned functions
+if "error" in results["summary"] and results["summary"]["error"]["reason"] == "banned_functions":
+    feedback.set_tag("banned_funcs", True)
+    feedback.set_global_result("failed")
+    banned_functions = [f"``{func}``" for func in results["summary"]["error"]["data"]]
+    if len(banned_functions) == 1:
+        feedback.set_global_feedback(f"Vous utilisez la fonction {banned_functions[0]}, qui n'est pas autorisée.")
+    else:
+        banned_functions_str = f"{', '.join(banned_functions[:-1])} et {banned_functions[-1]}"
+        feedback.set_global_feedback(f"Vous utilisez les fonctions {banned_functions_str}, qui ne sont pas autorisées.")
+    exit(0)
+
+# Produce feedback
+for problem, problem_results in results["problems"].items():
+    feedback.set_problem_result("success" if problem_results["success"] else "failed", problem)
+    for test in problem_results["tests"]:
+        desc = test["description"]
+        weight = test["weight"]
+        messages = test["messages"]
+
+        for tag in test["tags"]:
+            if tag != "":
+                feedback.set_tag(tag, True)
+        if "asan_log" in test:
+            asan_log = test["asan_log"].split("SUMMARY:")[0]
+            if "crash_log" in test:
+                stack_variables_index = test["crash_log"].rfind("=" * 65)
+                asan_log += "\n" + test["crash_log"][stack_variables_index:]
+            asan_feedback = rst.indent_block(2, rst.get_codeblock("", asan_log), " ") + "\n\n"
+            sanatizer_type = re.search("[=0-9]*ERROR: ([A-Za-z]+): ", asan_log).group(1)
+            messages.append(f"{sanatizer_type} a détecté une erreur lors de l'exécution de votre programme.")
+        else:
+            asan_feedback = ""
+        messages_feedbak = f"  Info: {' — '.join(messages)}\n\n" if messages else "\n"
+
+        if test["success"]:
+            feedback.set_problem_feedback(f"* {desc}\n\n  => réussi ({weight}/{weight} pts)\n\n" + messages_feedbak + asan_feedback, problem, True)
+        else:
+            feedback.set_problem_feedback(f"* {desc}\n\n  => échoué (0/{weight} pts)\n\n" + messages_feedbak + asan_feedback, problem, True)
+
+score = results["summary"]["score"]
+feedback.set_grade(score)
+feedback.set_global_result("success" if score >= 50 else "failed")
+if score == 100:
+    feedback.set_global_feedback("\n- Votre code a passé tous les tests.", True)
+else:
+    feedback.set_global_feedback("\n- Il y a des erreurs dans votre solution.", True)

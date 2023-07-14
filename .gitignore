@@ -6,3 +6,4 @@
 !Makefile
 .vscode
 __pycache__
+!example/inginious_task_calloc2/run
