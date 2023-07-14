@@ -212,4 +212,6 @@ def test_calloc2_1(self):
         self.fail("Why didn't you call malloc exactly once?")
 ```
 
+Note that we do not need to free `ret` as the debugged process is exited just after a test method execution.
+
 Now that `test_calloc2_1` has been ported to CCorrect, `test_calloc2_2` and `test_calloc2_3` can be done as well following the same principles. The final file can be seen [there](test.py).
