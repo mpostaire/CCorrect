@@ -286,7 +286,7 @@ def run_tests(test_cases=None, verbosity=0, ban_functions=None, result_filepath=
 
     runner = unittest.TextTestRunner(verbosity=verbosity)
 
-    if _run_ban_test(ban_functions, runner, result_filepath):
+    if ban_functions is not None and _run_ban_test(ban_functions, runner, result_filepath):
         return
 
     if test_cases is None:
