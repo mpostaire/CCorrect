@@ -1,8 +1,8 @@
 <!-- TODO all mentions of functions/methods of CCorrect in this document needs to be converted into links pointing to their repective documentation -->
 
-# How to convert from a CTester task to CCorrect
+# How to port a CTester INGInious task to CCorrect
 
-This tutorial aims to explain how to use CCorrect by showing how to convert an INGInious task using CTester into one using CCorrect to grade and provide feedback for a C exercise. The original task chosen as support can be accessed [here](https://github.com/obonaventure/LEPL1503/tree/master/s3_calloc2/student).
+This guide aims to explain how to use CCorrect by showing how to convert an INGInious task using CTester into one using CCorrect to grade and provide feedback for a C exercise. The original task chosen as support can be accessed [here](https://github.com/obonaventure/LEPL1503/tree/master/s3_calloc2/student).
 
 
 ## Task structure
