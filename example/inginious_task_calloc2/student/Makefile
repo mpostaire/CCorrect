@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -O0 -ggdb3 -fno-builtin -fsanitize=address -std=c99
+CFLAGS=-Wall -Werror -O0 -ggdb3 -fno-builtin -fsanitize=address -std=c99
 CPP=cppcheck
 EXEC=test
 CPPFLAGS=--error-exitcode=1
