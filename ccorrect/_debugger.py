@@ -343,6 +343,10 @@ class Debugger(ValueBuilder):
         # gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}:stack_trace_format='[]'")
         gdb.execute(f"set environment ASAN_OPTIONS=log_path=asan_log:detect_leaks={int(self._asan_detect_leaks)}")
         gdb.execute("set environment TSAN_OPTIONS=log_path=tsan_log")
+
+        # prevent malloced memory to be set to 0 (ignored when compiled with "-fsanitize=address" but it does something similar)
+        gdb.execute("set environment GLIBC_TUNABLES=glibc.malloc.perturb=42")
+
         gdb.execute(f"file {self._program}")  # load program
         gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
 
