@@ -169,13 +169,12 @@ class Debugger(ValueBuilder):
 
     The GDB process needs to have access to the tested program and the standard library symbols for a `Debugger` to work.
     """
-    def __init__(self, program, backtrace_max_depth=8, save_output=True, asan_detect_leaks=False):
+    def __init__(self, program, backtrace_max_depth=8, asan_detect_leaks=False):
         super().__init__()
         self.stats = {}
         self.backtrace_max_depth = backtrace_max_depth
         self._program = program
         self._asan_detect_leaks = asan_detect_leaks
-        self._save_output = save_output
         self._allocated_regions = []
         self.__breakpoints = {}
 
@@ -348,7 +347,7 @@ class Debugger(ValueBuilder):
         gdb.execute("set environment GLIBC_TUNABLES=glibc.malloc.perturb=42")
 
         gdb.execute(f"file {self._program}")  # load program
-        gdb.execute(f"start {'1> stdout.txt 2> stderr.txt' if self._save_output else ''}")
+        gdb.execute("start 1> stdout.txt 2> stderr.txt")
 
         # create breakpoint after start command to avoid the address sanitizer setup
         self.__free_breakpoint = FuncBreakpoint(self, False, None, "free")
@@ -383,6 +382,18 @@ class Debugger(ValueBuilder):
         self.__breakpoints.clear()
         self.__free_breakpoint = None
         gdb.set_convenience_variable("__CCorrect_debugging", None)
+
+    @ensure_self_debugging
+    def get_stdout(self):
+        """Returns a list where each element is a line of the inferior's stdout."""
+        with open("stdout.txt") as f:
+            return f.readlines()
+
+    @ensure_self_debugging
+    def get_stderr(self):
+        """Returns a list where each element is a line of the inferior's stderr."""
+        with open("stderr.txt") as f:
+            return f.readlines()
 
     @ensure_self_debugging
     def thread_count(self):

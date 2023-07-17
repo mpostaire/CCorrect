@@ -24,6 +24,7 @@ A guide to porting an INGInious task using CTester to CCorrect is available [her
         - [x] build scalars, structs, arrays, enums, unions
         - [x] build stucts with flexible array
     - [x] call functions
+        - [ ] variadic functions
     - [x] tests API
 - [x] Threads support
     - [x] keep track of number of threads
