@@ -5,7 +5,7 @@ from yaml import safe_load as yaml_load
 
 
 class TestExampleExercise(ccorrect.TestCase):
-    debugger = ccorrect.Debugger(os.path.join(os.path.dirname(__file__), "main"), asan_detect_leaks=True, save_output=False)
+    debugger = ccorrect.Debugger(os.path.join(os.path.dirname(__file__), "main"), asan_detect_leaks=True)
 
     @ccorrect.test_metadata(
         problem="list_success",
@@ -104,6 +104,8 @@ class TestCCorrectTestCase(unittest.TestCase):
                     "description": "testing pop",
                     "weight": 2,
                     "success": True,
+                    "stdout": "",
+                    "stderr": "",
                     "messages": [],
                     "tags": []
                 },
@@ -111,6 +113,8 @@ class TestCCorrectTestCase(unittest.TestCase):
                     "description": "testing push",
                     "weight": 1,
                     "success": True,
+                    "stdout": "",
+                    "stderr": "",
                     "messages": [],
                     "tags": []
                 }

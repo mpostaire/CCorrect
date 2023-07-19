@@ -5,7 +5,7 @@ import gdb
 
 
 program = os.path.join(os.path.dirname(__file__), "main")
-debugger = ccorrect.Debugger(program, save_output=False)
+debugger = ccorrect.Debugger(program)
 
 
 class TestValues(unittest.TestCase):

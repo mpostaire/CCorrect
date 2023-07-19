@@ -5,7 +5,7 @@ import gdb
 
 
 program = os.path.join(os.path.dirname(__file__), "main")
-debugger = ccorrect.Debugger(program, save_output=False)
+debugger = ccorrect.Debugger(program)
 
 
 class TestFunctions(unittest.TestCase):
@@ -28,6 +28,19 @@ class TestFunctions(unittest.TestCase):
         value = debugger.value("str_struct", {"value": 42, "name": "Hello there"})
         ret = str_struct_name_len(debugger.pointer(value))
         self.assertEqual(ret, 11)
+
+    def test_call_variadic(self):
+        printf, fflush = debugger.functions(["printf", "fflush"])
+        printf("Hello stdout %d!\n", debugger.value("char", 42))
+        printf("Hello stdout %d!\n", debugger.value("int", 425494))
+        printf("Hello stdout %c %d!\n", debugger.value("char", 42), debugger.value("int", 425494))
+
+        fflush(gdb.parse_and_eval("stdout"))
+        lines = debugger.get_stdout()
+
+        self.assertEqual("Hello stdout 42!\n", lines[0])
+        self.assertEqual("Hello stdout 425494!\n", lines[1])
+        self.assertEqual("Hello stdout * 425494!\n", lines[2])
 
     def test_call_generate_arg_from_template(self):
         repeat_char, str_struct_name_len, test_struct_mean = debugger.functions(["repeat_char", "str_struct_name_len", "test_struct_mean"])

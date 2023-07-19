@@ -114,14 +114,14 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
                 _test_results[self.__current_problem]["tests"][-1]["stdout"] = f.read()
                 f.truncate(0)
         except FileNotFoundError:
-            pass
+            _test_results[self.__current_problem]["tests"][-1]["stdout"] = ""
 
         try:
             with open("stderr.txt", "r+") as f:
                 _test_results[self.__current_problem]["tests"][-1]["stderr"] = f.read()
                 f.truncate(0)
         except FileNotFoundError:
-            pass
+            _test_results[self.__current_problem]["tests"][-1]["stderr"] = ""
 
     def _push_sanitizers_and_crash_logs(self, pid):
         asan_log_path = f"asan_log.{pid}"

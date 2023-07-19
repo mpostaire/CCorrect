@@ -2,6 +2,7 @@ import gdb
 import struct
 import sys
 import math
+import re
 from functools import wraps
 
 
@@ -257,6 +258,12 @@ class FuncWrapper:
                 elif not isinstance(arg, gdb.Value):
                     arg = self._valuebuilder.value(type, arg)
                 parsed_args.append(arg)
+
+            if len(args) > len(parsed_args):
+                if re.search(r"\((.*, ?)*(\.\.\.)\)$", str(self._value.type)) is not None:
+                    # self._value is a variadic function
+                    for i in range(len(parsed_args), len(args)):
+                        parsed_args.append(args[i])
 
         return self._value(*parsed_args)
 

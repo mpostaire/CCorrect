@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name="CCorrect",
-    version="0.3.dev6",
+    version="0.4.dev0",
     description="A python module to write, grade and provide feedback for exercices in C using gdb.",
     url="https://github.com/mpostaire/CCorrect",
     author="Maxime Postaire",

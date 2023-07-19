@@ -386,13 +386,13 @@ class Debugger(ValueBuilder):
     @ensure_self_debugging
     def get_stdout(self):
         """Returns a list where each element is a line of the inferior's stdout."""
-        with open("stdout.txt") as f:
+        with open("stdout.txt", "r") as f:
             return f.readlines()
 
     @ensure_self_debugging
     def get_stderr(self):
         """Returns a list where each element is a line of the inferior's stderr."""
-        with open("stderr.txt") as f:
+        with open("stderr.txt", "r") as f:
             return f.readlines()
 
     @ensure_self_debugging
