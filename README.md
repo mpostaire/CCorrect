@@ -25,6 +25,7 @@ A guide to porting an INGInious task using CTester to CCorrect is available [her
         - [x] build stucts with flexible array
     - [x] call functions
         - [x] variadic functions
+    - [ ] Detect if tested code checks the return value of functions. <!--  (use `-Wunused-result -Werror` with `__attribute__((warn_unused_result))` on the relevant function and pycparser). -->
     - [x] tests API
 - [x] Threads support
     - [x] keep track of number of threads

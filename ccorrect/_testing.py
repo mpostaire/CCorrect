@@ -100,7 +100,8 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
             _test_results[self.__current_problem]["tests"][-1]["messages"].append(msg)
 
     def push_tag(self, tag):
-        if tag != "":
+        tag = tag.lower().replace(" ", "_")
+        if tag != "" and tag not in _test_results[self.__current_problem]["tests"][-1]["tags"]:
             _test_results[self.__current_problem]["tests"][-1]["tags"].append(tag)
 
     def _push_output(self):
@@ -130,9 +131,11 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
                 asan_logs = f.read()
                 _test_results[self.__current_problem]["tests"][-1]["asan_log"] = asan_logs
                 # parse asan output to push tags
-                reason = re.match(".*ERROR: AddressSanitizer: ([^ ]+)", asan_logs.splitlines()[1])
+                reason = re.match(".*ERROR: AddressSanitizer: (?:attempting)? ?([^ ]+)", asan_logs.splitlines()[1])
                 if reason is not None:
                     self.push_tag(reason.group(1))
+                elif "ERROR: LeakSanitizer:" in asan_logs.splitlines()[2]:
+                    self.push_tag("memleak")
             os.remove(asan_log_path)
         except FileNotFoundError:
             pass
@@ -152,7 +155,15 @@ class TestCase(unittest.TestCase, metaclass=MetaTestCase):
 
         try:
             with open("crash_log.txt", "r") as f:
-                _test_results[self.__current_problem]["tests"][-1]["crash_log"] = f.read()
+                crash_logs = f.read()
+                _test_results[self.__current_problem]["tests"][-1]["crash_log"] = crash_logs
+                # parse crash output to push tags
+                reason = re.match(".*ERROR: Program received signal SIG([^ ]+)", crash_logs.splitlines()[0])
+                if reason is not None:
+                    if reason.group(1) == "ABRT" and "double free" in _test_results[self.__current_problem]["tests"][-1]["stderr"].splitlines()[-1]:
+                        self.push_tag("double-free")
+                    else:
+                        self.push_tag(reason.group(1))
             os.remove("crash_log.txt")
         except FileNotFoundError:
             pass
