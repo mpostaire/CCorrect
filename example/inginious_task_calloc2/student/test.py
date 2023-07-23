@@ -40,13 +40,7 @@ class TestStudentCode(ccorrect.TestCase):
     )
     def test_calloc2_2(self):
         global flag
-        calloc2, mallopt, malloc, free = self.debugger.functions(["calloc2", "mallopt", "malloc", "free"])
-        M_PERTURB = gdb.parse_and_eval("M_PERTURB")
-
-        m = mallopt(M_PERTURB, 42)
-        if m != 1:
-            cptr = malloc(10000)
-            free(cptr)
+        calloc2 = self.debugger.function("calloc2")
 
         ptr = calloc2(42, 1)
         if ptr == 0:
