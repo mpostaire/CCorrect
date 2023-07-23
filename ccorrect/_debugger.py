@@ -471,7 +471,7 @@ class Debugger(ValueBuilder):
             frame = gdb.newest_frame()
         try:
             block = frame.block()
-            return {symbol.name: (symbol.value(frame), symbol.is_argument) for symbol in block if symbol.is_variable}
+            return {symbol.name: (symbol.value(frame), symbol.is_argument) for symbol in block if symbol.is_variable or symbol.is_argument}
         except RuntimeError:
             return None
 
