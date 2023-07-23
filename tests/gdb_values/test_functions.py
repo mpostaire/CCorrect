@@ -196,6 +196,8 @@ class TestFunctions(unittest.TestCase):
         self.assertEqual(len(debugger.stats.keys()), 0)
 
     def test_malloced_free(self):
+        self.assertEqual(debugger.allocated_size(), 0)
+
         repeat_char, wrap_free = debugger.functions(["repeat_char", "wrap_free"])
         with debugger.watch("malloc"):
             ret = repeat_char("c", 10)
@@ -203,8 +205,10 @@ class TestFunctions(unittest.TestCase):
             self.assertEqual(debugger.stats["malloc"].called, 1)
             self.assertEqual(len(debugger.stats["malloc"].args), 1)
             self.assertEqual(len(debugger.stats["malloc"].returns), 1)
-            self.assertTrue(debugger.malloced(ret))
             self.assertEqual(debugger.allocated_size(), 11)
+            self.assertTrue(debugger.malloced(ret))
+            self.assertTrue(debugger.malloced(ret + 10))
+            self.assertFalse(debugger.malloced(ret + 11))
 
         wrap_free(ret)
         self.assertTrue(debugger.malloced(ret))

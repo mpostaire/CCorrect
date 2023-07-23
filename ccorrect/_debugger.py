@@ -406,7 +406,7 @@ class Debugger(ValueBuilder):
         Check if a given memory address is within one of the allocated regions (this only keep track of allocated memory when malloc/calloc/realloc/free are watched).
         """
         for start, size in self._allocated_regions:
-            if ptr >= start and ptr <= start + size:
+            if ptr >= start and ptr < start + size:
                 return True
         return False
 
