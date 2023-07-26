@@ -214,4 +214,4 @@ def test_calloc2_1(self):
 
 Note that we do not need to free `ret` as the debugged process is exited just after a test method execution.
 
-Now that `test_calloc2_1` has been ported to CCorrect, `test_calloc2_2` and `test_calloc2_3` can be done as well following the same principles. The final file can be seen [there](test.py).
+Now that `test_calloc2_1` has been ported to CCorrect, `test_calloc2_2` and `test_calloc2_3` can be done as well following the same principles. The final file can be seen [there](test.py). Note that `test_calloc2_2` uses `mallopt` to set the `M_PERTURB` memory allocation parameter. This is not needed as CCorrect enables this parameter by itself.
