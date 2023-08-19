@@ -7,17 +7,14 @@ This guide aims to explain how to use CCorrect by showing how to convert an INGI
 
 ## Task structure
 
-The directory structure of a CCorrect task is the same as a CTester task except for 3 files: the contents of the `run` file can be replaced by the contents of [this file](run)) and the same can be done for the `Makefile` which is replaced by [this one](Makefile).
-The most important changes are made to the [tests.c](https://github.com/obonaventure/LEPL1503/tree/master/s3_calloc2/student/tests.c) file: it is removed and replaced by a new file named [test.c](test.c):
+The directory structure of a CCorrect task is the same as a CTester task except for 3 files: the contents of the `run` file can be replaced by the contents of [this file](run)) and the same can be done for the `Makefile` which is replaced by [this one](student/Makefile).
+The most important changes are made to the [tests.c](https://github.com/obonaventure/LEPL1503/tree/master/s3_calloc2/student/tests.c) file: it is removed and replaced by a new file named [test.c](student/test.c):
 
 ```c
 /* test.c */
 // the following includes are needed by CCorrect
 #include <stdlib.h>
 #include <unistd.h>
-
-// make mallopt and M_PERTURB symbols available for GDB
-#include <malloc.h>
 
 // include functions to test
 #include "student_code.h"
